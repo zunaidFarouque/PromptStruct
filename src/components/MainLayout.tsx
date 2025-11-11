@@ -14,6 +14,7 @@ import { Save, Download, Copy, Plus } from 'lucide-react';
 import { TopBar } from './TopBar';
 import { ExportOptionsModal } from './ExportOptionsModal';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 
 export function MainLayout() {
     const {
@@ -44,6 +45,7 @@ export function MainLayout() {
 
     const [showExportModal, setShowExportModal] = useState(false);
     const [highlightedElementId, setHighlightedElementId] = useState<string | null>(null);
+    const [deleteElementId, setDeleteElementId] = useState<string | null>(null);
 
     // Refs for structural element cards
     const elementCardRefs = useRef<Record<string, StructuralElementCardRef>>({});
@@ -156,16 +158,39 @@ export function MainLayout() {
         addStructuralElement(newElement);
     };
 
+    const handleDeleteElement = (elementId: string) => {
+        setDeleteElementId(elementId);
+    };
+
+    const handleConfirmDeleteElement = () => {
+        if (deleteElementId) {
+            removeStructuralElement(deleteElementId);
+            setDeleteElementId(null);
+            NotificationService.success('Element deleted successfully');
+        }
+    };
+
     const handleExportPrompt = (options: any) => {
         try {
             let exportData: any;
             let filename: string;
+
+            // Get UI state for current prompt
+            const storeState = useEditorStore.getState();
+            const promptUIState = currentPrompt ? storeState.promptUIStates[currentPrompt.id] : undefined;
 
             if (options.scope === 'current') {
                 // Export current version only (structure state)
                 exportData = {
                     prompt: currentPrompt,
                     structure: structure,
+                    uiState: promptUIState ? {
+                        starredControls: promptUIState.starredControls,
+                        starredTextBoxes: promptUIState.starredTextBoxes,
+                        globalControlValues: promptUIState.uiGlobalControlValues,
+                        collapsedByElementId: promptUIState.uiCollapsedByElementId,
+                        uiMiniEditorCollapsed: promptUIState.uiMiniEditorCollapsed,
+                    } : undefined,
                     exportedAt: new Date().toISOString(),
                     version: 'current'
                 };
@@ -179,6 +204,13 @@ export function MainLayout() {
                     prompt: currentPrompt,
                     versions: lastVersion ? [lastVersion] : [],
                     currentStructure: structure,
+                    uiState: promptUIState ? {
+                        starredControls: promptUIState.starredControls,
+                        starredTextBoxes: promptUIState.starredTextBoxes,
+                        globalControlValues: promptUIState.uiGlobalControlValues,
+                        collapsedByElementId: promptUIState.uiCollapsedByElementId,
+                        uiMiniEditorCollapsed: promptUIState.uiMiniEditorCollapsed,
+                    } : undefined,
                     exportedAt: new Date().toISOString(),
                     version: 'last'
                 };
@@ -190,6 +222,13 @@ export function MainLayout() {
                     prompt: currentPrompt,
                     versions: promptVersions,
                     currentStructure: structure,
+                    uiState: promptUIState ? {
+                        starredControls: promptUIState.starredControls,
+                        starredTextBoxes: promptUIState.starredTextBoxes,
+                        globalControlValues: promptUIState.uiGlobalControlValues,
+                        collapsedByElementId: promptUIState.uiCollapsedByElementId,
+                        uiMiniEditorCollapsed: promptUIState.uiMiniEditorCollapsed,
+                    } : undefined,
                     exportedAt: new Date().toISOString(),
                     version: 'all'
                 };
@@ -368,7 +407,7 @@ export function MainLayout() {
                                                             }}
                                                             element={element}
                                                             onUpdate={updateStructuralElement}
-                                                            onDelete={removeStructuralElement}
+                                                            onDelete={handleDeleteElement}
                                                             onToggle={toggleStructuralElement}
                                                             controlValues={uiGlobalControlValues}
                                                             onControlChange={handleGlobalControlChange}
@@ -558,6 +597,27 @@ export function MainLayout() {
                 prompt={currentPrompt}
                 versions={versions}
             />
+
+            {/* Delete Structural Element Confirmation Dialog */}
+            <AlertDialog open={deleteElementId !== null} onOpenChange={(open) => !open && setDeleteElementId(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Structural Element</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete "{structure.find(el => el.id === deleteElementId)?.name}"? This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleConfirmDeleteElement}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

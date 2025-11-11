@@ -10,14 +10,15 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { Plus, X, Settings, Save } from 'lucide-react';
+import { Plus, X, Settings, Save, Trash2 } from 'lucide-react';
 
 interface ProjectSettingsProps {
     isOpen: boolean;
     onClose: () => void;
+    onDeleteRequest?: () => void;
 }
 
-export function ProjectSettings({ isOpen, onClose }: ProjectSettingsProps) {
+export function ProjectSettings({ isOpen, onClose, onDeleteRequest }: ProjectSettingsProps) {
     const { currentProject, updateProject } = useEditorStore();
     const [projectName, setProjectName] = useState('');
     const [projectDescription, setProjectDescription] = useState('');
@@ -224,6 +225,31 @@ export function ProjectSettings({ isOpen, onClose }: ProjectSettingsProps) {
                                     <SelectItem value="txt">Plain Text</SelectItem>
                                 </SelectContent>
                             </Select>
+                        </div>
+                    </div>
+
+                    <Separator />
+
+                    {/* Delete Project Section */}
+                    <div className="space-y-3">
+                        <h4 className="text-lg font-semibold text-destructive">Danger Zone</h4>
+                        <div className="space-y-2">
+                            <p className="text-sm text-muted-foreground">
+                                Deleting this project will permanently remove it and all its prompts. This action cannot be undone.
+                            </p>
+                            <Button
+                                variant="destructive"
+                                onClick={() => {
+                                    if (onDeleteRequest) {
+                                        onDeleteRequest();
+                                        onClose();
+                                    }
+                                }}
+                                className="w-full"
+                            >
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                Delete Project
+                            </Button>
                         </div>
                     </div>
                 </div>

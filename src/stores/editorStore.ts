@@ -17,6 +17,7 @@ interface BrowserPanelsState {
     showSearchBar: boolean;
     showProjects: boolean;
     showDirectUsePreview: boolean;
+    miniEditorLayoutDirection: 'horizontal' | 'vertical' | 'hidden';
 }
 
 interface EditorPanelsState {
@@ -28,6 +29,14 @@ interface EditorPanelsState {
 interface MiniEditorState {
     lastOpenedContext?: { projectId?: string; promptId?: string } | null;
     state?: any;
+}
+
+interface PromptUIState {
+    starredControls: Record<string, string[]>; // elementId -> array of control names
+    starredTextBoxes: string[]; // array of elementIds
+    uiGlobalControlValues: Record<string, any>; // control name -> value
+    uiCollapsedByElementId: Record<string, { text: boolean; controls: boolean; lastExpandedState?: { text: boolean; controls: boolean } }>;
+    uiMiniEditorCollapsed: Record<string, boolean>; // elementId -> collapsed state
 }
 
 interface EditorState {
@@ -42,7 +51,7 @@ interface EditorState {
     prompts: Prompt[];
     versions: Version[];
 
-    // UI state (persisted)
+    // UI state (persisted) - these are the "current" working state, synced with promptUIStates
     uiCollapsedByElementId: Record<string, { text: boolean; controls: boolean; lastExpandedState?: { text: boolean; controls: boolean } }>;
     uiHelpPanelExpanded: boolean;
     uiPreviewPanelExpanded: boolean;
@@ -52,9 +61,12 @@ interface EditorState {
     uiShowFavourites: boolean;
     uiMiniEditorCollapsed: Record<string, boolean>; // elementId -> collapsed state
 
-    // Star system state
+    // Star system state (current working state, synced with promptUIStates)
     starredControls: Record<string, string[]>; // elementId -> array of control names
     starredTextBoxes: string[]; // array of elementIds
+
+    // Per-prompt UI states (persisted per prompt)
+    promptUIStates: Record<string, PromptUIState>; // promptId -> PromptUIState
 
     // Browser window panel visibility
     browserPanels: BrowserPanelsState;
@@ -87,6 +99,10 @@ interface EditorState {
     // Star system actions
     toggleStarControl: (elementId: string, controlName: string) => void;
     toggleStarTextBox: (elementId: string) => void;
+
+    // Prompt UI state management
+    setPromptUIState: (promptId: string, uiState: Partial<PromptUIState>) => void;
+    getPromptUIState: (promptId: string) => PromptUIState | undefined;
 
     // Browser panels actions
     setBrowserPanels: (panels: Partial<BrowserPanelsState>) => void;
@@ -169,10 +185,12 @@ export const useEditorStore = create<EditorState>()(
             uiMiniEditorCollapsed: {},
             starredControls: {},
             starredTextBoxes: [],
+            promptUIStates: {},
             browserPanels: {
                 showSearchBar: true,
                 showProjects: true,
                 showDirectUsePreview: true,
+                miniEditorLayoutDirection: 'vertical',
             },
             editorPanels: {
                 showStructure: true,
@@ -233,23 +251,113 @@ export const useEditorStore = create<EditorState>()(
 
             // UI actions
             setUiCollapsedForElement: (id, collapsed) =>
-                set((state) => ({
-                    uiCollapsedByElementId: { ...state.uiCollapsedByElementId, [id]: collapsed },
-                })),
+                set((state) => {
+                    const updatedState: Partial<EditorState> = {
+                        uiCollapsedByElementId: { ...state.uiCollapsedByElementId, [id]: collapsed },
+                    };
+                    
+                    // Also update promptUIStates for current prompt
+                    if (state.currentPrompt) {
+                        const promptUIState = state.promptUIStates[state.currentPrompt.id] || {
+                            starredControls: {},
+                            starredTextBoxes: [],
+                            uiGlobalControlValues: {},
+                            uiCollapsedByElementId: {},
+                            uiMiniEditorCollapsed: {},
+                        };
+                        updatedState.promptUIStates = {
+                            ...state.promptUIStates,
+                            [state.currentPrompt.id]: {
+                                ...promptUIState,
+                                uiCollapsedByElementId: { ...promptUIState.uiCollapsedByElementId, [id]: collapsed },
+                            },
+                        };
+                    }
+                    
+                    return updatedState;
+                }),
             setUiHelpPanelExpanded: (expanded) => set({ uiHelpPanelExpanded: expanded }),
             setUiPreviewPanelExpanded: (expanded) => set({ uiPreviewPanelExpanded: expanded }),
             setUiPanelLayout: (layout) => set({ uiPanelLayout: layout }),
-            setUiGlobalControlValues: (values) => set({ uiGlobalControlValues: values }),
-            setUiCollapsedByElementId: (collapsed) => set({ uiCollapsedByElementId: collapsed }),
+            setUiGlobalControlValues: (values) =>
+                set((state) => {
+                    const updatedState: Partial<EditorState> = { uiGlobalControlValues: values };
+                    
+                    // Also update promptUIStates for current prompt
+                    if (state.currentPrompt) {
+                        const promptUIState = state.promptUIStates[state.currentPrompt.id] || {
+                            starredControls: {},
+                            starredTextBoxes: [],
+                            uiGlobalControlValues: {},
+                            uiCollapsedByElementId: {},
+                            uiMiniEditorCollapsed: {},
+                        };
+                        updatedState.promptUIStates = {
+                            ...state.promptUIStates,
+                            [state.currentPrompt.id]: {
+                                ...promptUIState,
+                                uiGlobalControlValues: values,
+                            },
+                        };
+                    }
+                    
+                    return updatedState;
+                }),
+            setUiCollapsedByElementId: (collapsed) =>
+                set((state) => {
+                    const updatedState: Partial<EditorState> = { uiCollapsedByElementId: collapsed };
+                    
+                    // Also update promptUIStates for current prompt
+                    if (state.currentPrompt) {
+                        const promptUIState = state.promptUIStates[state.currentPrompt.id] || {
+                            starredControls: {},
+                            starredTextBoxes: [],
+                            uiGlobalControlValues: {},
+                            uiCollapsedByElementId: {},
+                            uiMiniEditorCollapsed: {},
+                        };
+                        updatedState.promptUIStates = {
+                            ...state.promptUIStates,
+                            [state.currentPrompt.id]: {
+                                ...promptUIState,
+                                uiCollapsedByElementId: collapsed,
+                            },
+                        };
+                    }
+                    
+                    return updatedState;
+                }),
             setUiTextEditorHeight: (elementId, height) =>
                 set((state) => ({
                     uiTextEditorHeight: { ...state.uiTextEditorHeight, [elementId]: height },
                 })),
             setUiShowFavourites: (show) => set({ uiShowFavourites: show }),
             setUiMiniEditorCollapsed: (elementId, collapsed) =>
-                set((state) => ({
-                    uiMiniEditorCollapsed: { ...state.uiMiniEditorCollapsed, [elementId]: collapsed },
-                })),
+                set((state) => {
+                    const updatedState: Partial<EditorState> = {
+                        uiMiniEditorCollapsed: { ...state.uiMiniEditorCollapsed, [elementId]: collapsed },
+                    };
+                    
+                    // Also update promptUIStates for current prompt
+                    if (state.currentPrompt) {
+                        const promptUIState = state.promptUIStates[state.currentPrompt.id] || {
+                            starredControls: {},
+                            starredTextBoxes: [],
+                            uiGlobalControlValues: {},
+                            uiCollapsedByElementId: {},
+                            uiMiniEditorCollapsed: {},
+                        };
+                        updatedState.promptUIStates = {
+                            ...state.promptUIStates,
+                            [state.currentPrompt.id]: {
+                                ...promptUIState,
+                                uiMiniEditorCollapsed: { ...promptUIState.uiMiniEditorCollapsed, [elementId]: collapsed },
+                            },
+                        };
+                    }
+                    
+                    return updatedState;
+                }),
             toggleStarControl: (elementId, controlName) =>
                 set((state) => {
                     const currentStarred = Array.isArray(state.starredControls[elementId]) ? state.starredControls[elementId] : [];
@@ -260,12 +368,35 @@ export const useEditorStore = create<EditorState>()(
                     } else {
                         newStarred.push(controlName);
                     }
-                    return {
+                    const updatedState: Partial<EditorState> = {
                         starredControls: {
                             ...state.starredControls,
                             [elementId]: newStarred,
                         },
                     };
+                    
+                    // Also update promptUIStates for current prompt
+                    if (state.currentPrompt) {
+                        const promptUIState = state.promptUIStates[state.currentPrompt.id] || {
+                            starredControls: {},
+                            starredTextBoxes: [],
+                            uiGlobalControlValues: {},
+                            uiCollapsedByElementId: {},
+                            uiMiniEditorCollapsed: {},
+                        };
+                        updatedState.promptUIStates = {
+                            ...state.promptUIStates,
+                            [state.currentPrompt.id]: {
+                                ...promptUIState,
+                                starredControls: {
+                                    ...promptUIState.starredControls,
+                                    [elementId]: newStarred,
+                                },
+                            },
+                        };
+                    }
+                    
+                    return updatedState;
                 }),
             toggleStarTextBox: (elementId) =>
                 set((state) => {
@@ -277,8 +408,48 @@ export const useEditorStore = create<EditorState>()(
                     } else {
                         newStarredTextBoxes.push(elementId);
                     }
-                    return { starredTextBoxes: newStarredTextBoxes };
+                    const updatedState: Partial<EditorState> = { starredTextBoxes: newStarredTextBoxes };
+                    
+                    // Also update promptUIStates for current prompt
+                    if (state.currentPrompt) {
+                        const promptUIState = state.promptUIStates[state.currentPrompt.id] || {
+                            starredControls: {},
+                            starredTextBoxes: [],
+                            uiGlobalControlValues: {},
+                            uiCollapsedByElementId: {},
+                            uiMiniEditorCollapsed: {},
+                        };
+                        updatedState.promptUIStates = {
+                            ...state.promptUIStates,
+                            [state.currentPrompt.id]: {
+                                ...promptUIState,
+                                starredTextBoxes: newStarredTextBoxes,
+                            },
+                        };
+                    }
+                    
+                    return updatedState;
                 }),
+            setPromptUIState: (promptId, uiState) =>
+                set((state) => ({
+                    promptUIStates: {
+                        ...state.promptUIStates,
+                        [promptId]: {
+                            ...(state.promptUIStates[promptId] || {
+                                starredControls: {},
+                                starredTextBoxes: [],
+                                uiGlobalControlValues: {},
+                                uiCollapsedByElementId: {},
+                                uiMiniEditorCollapsed: {},
+                            }),
+                            ...uiState,
+                        },
+                    },
+                })),
+            getPromptUIState: (promptId) => {
+                const state = get();
+                return state.promptUIStates[promptId];
+            },
             setBrowserPanels: (panels) => set((state) => ({ browserPanels: { ...state.browserPanels, ...panels } })),
             setEditorPanels: (panels) => set((state) => ({ editorPanels: { ...state.editorPanels, ...panels } })),
             setMiniEditorContext: (ctx) => set((state) => ({ miniEditor: { ...state.miniEditor, lastOpenedContext: ctx } })),
@@ -324,12 +495,124 @@ export const useEditorStore = create<EditorState>()(
                 })),
 
             deletePrompt: (id) =>
-                set((state) => ({
-                    prompts: state.prompts.filter((prompt) => prompt.id !== id),
-                    versions: state.versions.filter((version) => version.promptId !== id),
-                })),
+                set((state) => {
+                    const newPromptUIStates = { ...state.promptUIStates };
+                    delete newPromptUIStates[id];
+                    return {
+                        prompts: state.prompts.filter((prompt) => prompt.id !== id),
+                        versions: state.versions.filter((version) => version.promptId !== id),
+                        promptUIStates: newPromptUIStates,
+                    };
+                }),
 
-            setCurrentPrompt: (prompt) => set({ currentPrompt: prompt }),
+            setCurrentPrompt: (prompt) => {
+                const state = get();
+                
+                // Save current UI state to previous prompt before switching (if a prompt was open)
+                if (state.currentPrompt) {
+                    const currentPromptUIState: PromptUIState = {
+                        starredControls: { ...state.starredControls },
+                        starredTextBoxes: [...state.starredTextBoxes],
+                        uiGlobalControlValues: { ...state.uiGlobalControlValues },
+                        uiCollapsedByElementId: { ...state.uiCollapsedByElementId },
+                        uiMiniEditorCollapsed: { ...state.uiMiniEditorCollapsed },
+                    };
+                    state.setPromptUIState(state.currentPrompt.id, currentPromptUIState);
+                    
+                    // Save current structure to previous prompt before switching (if a prompt was open)
+                    if (state.structure.length > 0) {
+                        // Auto-save current structure to previous prompt
+                        const existingAutoSave = state.versions.find(v =>
+                            v.promptId === state.currentPrompt!.id && v.isAutoSave === true
+                        );
+
+                        const structureToSave = state.structure.map(el => ({ ...el })); // Deep clone
+
+                        if (existingAutoSave) {
+                            // Update existing auto-save
+                            state.updateVersion(existingAutoSave.id, {
+                                structure: structureToSave,
+                                createdAt: new Date().toISOString(),
+                            });
+                        } else {
+                            // Create new auto-save
+                            const autoSaveVersion: Version = {
+                                id: `ver_${Date.now()}`,
+                                promptId: state.currentPrompt.id,
+                                createdAt: new Date().toISOString(),
+                                structure: structureToSave,
+                                isAutoSave: true,
+                            };
+                            state.addVersion(autoSaveVersion);
+                        }
+                    }
+                }
+
+                // Load new prompt's structure and UI state
+                let structureToLoad: StructuralElement[] = [];
+                let uiStateToLoad: PromptUIState = {
+                    starredControls: {},
+                    starredTextBoxes: [],
+                    uiGlobalControlValues: {},
+                    uiCollapsedByElementId: {},
+                    uiMiniEditorCollapsed: {},
+                };
+                
+                if (prompt) {
+                    // Load UI state for the new prompt
+                    const savedUIState = state.promptUIStates[prompt.id];
+                    if (savedUIState) {
+                        uiStateToLoad = {
+                            starredControls: { ...savedUIState.starredControls },
+                            starredTextBoxes: [...savedUIState.starredTextBoxes],
+                            uiGlobalControlValues: { ...savedUIState.uiGlobalControlValues },
+                            uiCollapsedByElementId: { ...savedUIState.uiCollapsedByElementId },
+                            uiMiniEditorCollapsed: { ...savedUIState.uiMiniEditorCollapsed },
+                        };
+                    }
+                    
+                    // Try to load from currentVersion first
+                    if (prompt.currentVersion) {
+                        const currentVersion = state.versions.find(v => v.id === prompt.currentVersion);
+                        if (currentVersion) {
+                            structureToLoad = currentVersion.structure.map(el => ({ ...el })); // Deep clone
+                        }
+                    }
+                    
+                    // If no currentVersion or version not found, try latest non-autosave version
+                    if (structureToLoad.length === 0) {
+                        const nonAutoSaveVersions = state.versions
+                            .filter(v => v.promptId === prompt.id && !v.isAutoSave)
+                            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                        
+                        if (nonAutoSaveVersions.length > 0) {
+                            structureToLoad = nonAutoSaveVersions[0].structure.map(el => ({ ...el })); // Deep clone
+                        }
+                    }
+                    
+                    // If still no structure, try latest auto-save
+                    if (structureToLoad.length === 0) {
+                        const autoSaveVersions = state.versions
+                            .filter(v => v.promptId === prompt.id && v.isAutoSave === true)
+                            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                        
+                        if (autoSaveVersions.length > 0) {
+                            structureToLoad = autoSaveVersions[0].structure.map(el => ({ ...el })); // Deep clone
+                        }
+                    }
+                }
+                
+                // If no structure found, use empty array (will be initialized when user starts editing)
+                set({ 
+                    currentPrompt: prompt,
+                    structure: structureToLoad.length > 0 ? structureToLoad : [],
+                    starredControls: uiStateToLoad.starredControls,
+                    starredTextBoxes: uiStateToLoad.starredTextBoxes,
+                    uiGlobalControlValues: uiStateToLoad.uiGlobalControlValues,
+                    uiCollapsedByElementId: uiStateToLoad.uiCollapsedByElementId,
+                    uiMiniEditorCollapsed: uiStateToLoad.uiMiniEditorCollapsed,
+                });
+            },
             setPrompts: (prompts) => set({ prompts }),
 
             // Version management
@@ -450,6 +733,7 @@ export const useEditorStore = create<EditorState>()(
                 uiMiniEditorCollapsed: state.uiMiniEditorCollapsed,
                 starredControls: state.starredControls,
                 starredTextBoxes: state.starredTextBoxes,
+                promptUIStates: state.promptUIStates,
                 browserPanels: state.browserPanels,
                 editorPanels: state.editorPanels,
                 miniEditor: state.miniEditor,
@@ -458,3 +742,6 @@ export const useEditorStore = create<EditorState>()(
         }
     )
 );
+
+// Export PromptUIState type for use in other files
+export type { PromptUIState };

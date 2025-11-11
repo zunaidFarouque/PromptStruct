@@ -7,8 +7,8 @@ import { useKeyboardShortcuts, CommonShortcuts } from '@/services/keyboardShortc
 import { ProjectSettings } from './ProjectSettings';
 import { AdvancedSearch } from './AdvancedSearch';
 import { ProjectTemplates } from './ProjectTemplates';
-import { ExportOptionsModal } from './ExportOptionsModal';
 import { ImportPreviewModal } from './ImportPreviewModal';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { EnhancedSearchBar } from './EnhancedSearchBar';
 import { analyzeImportData, applyImportResolutions } from '@/utils/importAnalyzer';
 import { ImportAnalysis, ImportConflict } from '@/types';
@@ -19,10 +19,11 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { TopBar } from './TopBar';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { DirectUsePanel } from './MiniPreviewPanel';
-import { Search, Plus, Upload, FileText, Settings, Download, X, Edit, Copy, FolderOpen, Calendar, Tag, Star } from 'lucide-react';
+import { Search, Plus, Upload, FileText, Settings, Download, X, Edit, Copy, FolderOpen, Calendar, Tag, Star, ExternalLink, MoreVertical } from 'lucide-react';
 
 export function ProjectBrowser() {
     const {
@@ -44,7 +45,8 @@ export function ProjectBrowser() {
         uiShowFavourites,
         versions,
         browserPanels,
-        setBrowserPanels
+        setBrowserPanels,
+        setMiniEditorContext
     } = useEditorStore();
 
     const navigate = useNavigate();
@@ -63,10 +65,11 @@ export function ProjectBrowser() {
     const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
     const [searchResults, setSearchResults] = useState<{ projects: Project[]; prompts: Prompt[] } | null>(null);
     const [showProjectTemplates, setShowProjectTemplates] = useState(false);
-    const [showExportModal, setShowExportModal] = useState(false);
-    const [exportingProject, setExportingProject] = useState<Project | null>(null);
     const [compactActions, setCompactActions] = useState(false);
+    const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
+    const [deletePromptId, setDeletePromptId] = useState<string | null>(null);
     const [compactProjectsActions, setCompactProjectsActions] = useState(false);
+    const [compactPromptCards, setCompactPromptCards] = useState(false);
     const [showImportPreview, setShowImportPreview] = useState(false);
     const [importAnalysis, setImportAnalysis] = useState<ImportAnalysis | null>(null);
     const [rawImportData, setRawImportData] = useState<any>(null);
@@ -209,98 +212,31 @@ export function ProjectBrowser() {
         }
     };
 
-    const handleExportProject = (project: Project) => {
-        setExportingProject(project);
-        setShowExportModal(true);
+    const handleConfirmDeleteProject = () => {
+        if (deleteProjectId) {
+            deleteProject(deleteProjectId);
+            if (selectedProject?.id === deleteProjectId) {
+                setSelectedProject(null);
+            }
+            setDeleteProjectId(null);
+            NotificationService.success('Project deleted successfully');
+        }
     };
 
-    const handleProjectExportOptions = (options: any) => {
-        if (!exportingProject) return;
+    const handleConfirmDeletePrompt = () => {
+        if (deletePromptId) {
+            deletePrompt(deletePromptId);
 
-        try {
-            let exportData: any;
-            let filename: string;
-
-            if (options.scope === 'current') {
-                // Export project metadata only
-                exportData = {
-                    project: exportingProject,
-                    exportedAt: new Date().toISOString(),
-                    version: 'metadata'
+            // Update selectedProject to remove the deleted prompt
+            if (selectedProject) {
+                const updatedProject = {
+                    ...selectedProject,
+                    prompts: selectedProject.prompts.filter(id => id !== deletePromptId)
                 };
-                filename = `${exportingProject.name.replace(/\s+/g, '_')}_metadata.json`;
-            } else if (options.scope === 'last') {
-                // Export project with all prompts and their last saved versions (excluding autosaves)
-                const projectPrompts = prompts.filter(p => exportingProject.prompts.includes(p.id));
-                const projectPromptIds = projectPrompts.map(p => p.id);
-                
-                // Get last version for each prompt (excluding autosaves)
-                const projectVersions: any[] = [];
-                const promptsWithoutVersions: string[] = [];
-                projectPromptIds.forEach(promptId => {
-                    const allVersions = versions.filter(v => v.promptId === promptId && !v.isAutoSave);
-                    const lastVersion = allVersions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-                    if (lastVersion) {
-                        projectVersions.push(lastVersion);
-                    } else {
-                        const prompt = projectPrompts.find(p => p.id === promptId);
-                        if (prompt) {
-                            promptsWithoutVersions.push(prompt.name);
-                        }
-                    }
-                });
-
-                if (promptsWithoutVersions.length > 0) {
-                    NotificationService.error(`Cannot export project with prompts that have no saved content: ${promptsWithoutVersions.join(', ')}`);
-                    return;
-                }
-
-                exportData = {
-                    project: exportingProject,
-                    prompts: projectPrompts,
-                    versions: projectVersions,
-                    exportedAt: new Date().toISOString(),
-                    version: 'last'
-                };
-                filename = `${exportingProject.name.replace(/\s+/g, '_')}_last_versions.json`;
-            } else {
-                // Export project with all prompts and versions (excluding autosaves)
-                const projectPrompts = prompts.filter(p => exportingProject.prompts.includes(p.id));
-                const projectPromptIds = projectPrompts.map(p => p.id);
-                const projectVersions = versions.filter(v => projectPromptIds.includes(v.promptId) && !v.isAutoSave);
-
-                // Check for prompts without versions
-                const promptsWithoutVersions = projectPrompts.filter(p => {
-                    return !projectVersions.some(v => v.promptId === p.id);
-                });
-
-                if (promptsWithoutVersions.length > 0) {
-                    NotificationService.error(`Cannot export project with prompts that have no saved content: ${promptsWithoutVersions.map(p => p.name).join(', ')}`);
-                    return;
-                }
-
-                exportData = {
-                    project: exportingProject,
-                    prompts: projectPrompts,
-                    versions: projectVersions,
-                    exportedAt: new Date().toISOString(),
-                    version: 'full'
-                };
-                filename = `${exportingProject.name.replace(/\s+/g, '_')}_full.json`;
+                setSelectedProject(updatedProject);
             }
-
-            const dataStr = JSON.stringify(exportData, null, 2);
-            const dataBlob = new Blob([dataStr], { type: 'application/json' });
-            const url = URL.createObjectURL(dataBlob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = filename;
-            link.click();
-            URL.revokeObjectURL(url);
-
-            NotificationService.projectExported(exportingProject.name);
-        } catch (error) {
-            NotificationService.error(`Failed to export project: ${error}`);
+            setDeletePromptId(null);
+            NotificationService.success('Prompt deleted successfully');
         }
     };
 
@@ -403,9 +339,19 @@ export function ProjectBrowser() {
             return;
         }
 
+        // Get UI states for selected prompts
+        const storeState = useEditorStore.getState();
+        const promptUIStates: Record<string, any> = {};
+        selectedPromptIds.forEach(promptId => {
+            if (storeState.promptUIStates[promptId]) {
+                promptUIStates[promptId] = storeState.promptUIStates[promptId];
+            }
+        });
+
         const exportData = {
             prompts: selectedPromptData,
             versions: selectedVersions,
+            promptUIStates: Object.keys(promptUIStates).length > 0 ? promptUIStates : undefined,
             exportedAt: new Date().toISOString(),
             count: selectedPromptData.length
         };
@@ -451,10 +397,20 @@ export function ProjectBrowser() {
             return;
         }
 
+        // Get UI states for selected prompts
+        const storeState = useEditorStore.getState();
+        const promptUIStates: Record<string, any> = {};
+        selectedPromptIds.forEach(promptId => {
+            if (storeState.promptUIStates[promptId]) {
+                promptUIStates[promptId] = storeState.promptUIStates[promptId];
+            }
+        });
+
         const exportData = {
             projects: selectedProjectData,
             prompts: selectedPromptsData,
             versions: selectedVersions,
+            promptUIStates: Object.keys(promptUIStates).length > 0 ? promptUIStates : undefined,
             exportedAt: new Date().toISOString(),
             count: selectedProjectData.length
         };
@@ -544,17 +500,7 @@ export function ProjectBrowser() {
                 }
             });
 
-            resolved.prompts.forEach(prompt => {
-                const existingIndex = currentPrompts.findIndex(p => p.id === prompt.id);
-                if (existingIndex >= 0) {
-                    // Update existing
-                    state.updatePrompt(prompt.id, prompt);
-                } else {
-                    // Add new
-                    addPrompt(prompt);
-                }
-            });
-
+            // Import versions first to ensure they exist when prompts reference them
             resolved.versions.forEach(version => {
                 const existingIndex = currentVersions.findIndex(v => v.id === version.id);
                 if (existingIndex >= 0) {
@@ -565,6 +511,51 @@ export function ProjectBrowser() {
                     state.addVersion(version);
                 }
             });
+
+            // Import prompts with their updated metadata (versions array and currentVersion)
+            // The metadata is already set correctly by applyImportResolutions
+            resolved.prompts.forEach(prompt => {
+                const existingIndex = currentPrompts.findIndex(p => p.id === prompt.id);
+                if (existingIndex >= 0) {
+                    // Update existing prompt with all metadata including versions and currentVersion
+                    state.updatePrompt(prompt.id, prompt);
+                } else {
+                    // Add new prompt with metadata
+                    addPrompt(prompt);
+                }
+            });
+
+            // Import UI states for prompts if available
+            // Handle bulk export format (promptUIStates object)
+            if (rawImportData.promptUIStates && typeof rawImportData.promptUIStates === 'object') {
+                Object.entries(rawImportData.promptUIStates).forEach(([promptId, uiState]: [string, any]) => {
+                    // Only import UI state if the prompt exists (either was just imported or already existed)
+                    const promptExists = resolved.prompts.some(p => p.id === promptId) || 
+                                       currentPrompts.some(p => p.id === promptId);
+                    if (promptExists && uiState) {
+                        state.setPromptUIState(promptId, uiState);
+                    }
+                });
+            }
+            
+            // Handle single prompt export format (uiState at root level)
+            if (rawImportData.uiState && rawImportData.prompt) {
+                const promptId = rawImportData.prompt.id;
+                const promptExists = resolved.prompts.some(p => p.id === promptId) || 
+                                   currentPrompts.some(p => p.id === promptId);
+                if (promptExists && rawImportData.uiState) {
+                    // Map single prompt UI state format to promptUIStates format
+                    const uiState = rawImportData.uiState;
+                    const promptUIState = {
+                        starredControls: uiState.starredControls || {},
+                        starredTextBoxes: uiState.starredTextBoxes || [],
+                        uiGlobalControlValues: uiState.globalControlValues || {},
+                        uiCollapsedByElementId: uiState.collapsedByElementId || {},
+                        uiMiniEditorCollapsed: uiState.uiMiniEditorCollapsed || {},
+                    };
+                    state.setPromptUIState(promptId, promptUIState);
+                }
+            }
 
             // Handle orphaned prompts (prompts not in any project)
             // Note: currentProjects was set above when getting state
@@ -656,6 +647,14 @@ export function ProjectBrowser() {
                 subtitle="Project Browser"
                 additionalButtons={(
                     <>
+                        <Button 
+                            variant="outline" 
+                            onClick={() => setBrowserPanels({ showSearchBar: !browserPanels.showSearchBar })}
+                            title={browserPanels.showSearchBar ? 'Hide Search Bar' : 'Show Search Bar'}
+                        >
+                            <Search className="w-4 h-4 mr-2" />
+                            {browserPanels.showSearchBar ? 'Hide Search' : 'Show Search'}
+                        </Button>
                         <Button variant="outline" onClick={() => document.getElementById('import-file')?.click()}>
                             <Upload className="w-4 h-4 mr-2" />
                             Import
@@ -852,29 +851,6 @@ export function ProjectBrowser() {
                                                         >
                                                             <Settings className="w-4 h-4" />
                                                         </Button>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleExportProject(project);
-                                                            }}
-                                                        >
-                                                            <Download className="w-4 h-4" />
-                                                        </Button>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                deleteProject(project.id);
-                                                                if (selectedProject?.id === project.id) {
-                                                                    setSelectedProject(null);
-                                                                }
-                                                            }}
-                                                        >
-                                                            <X className="w-4 h-4" />
-                                                        </Button>
                                                     </div>
                                                 )}
                                             </div>
@@ -911,10 +887,18 @@ export function ProjectBrowser() {
                                             key={prompt.id}
                                             onClick={() => {
                                                 if (parentProject) {
+                                                    // Open in mini editor (default behavior)
                                                     setSelectedProject(parentProject);
                                                     setCurrentProject(parentProject);
                                                     setCurrentPrompt(prompt);
-                                                    navigate('/editor');
+                                                    setMiniEditorContext({ 
+                                                        projectId: parentProject.id, 
+                                                        promptId: prompt.id 
+                                                    });
+                                                    // Ensure Direct Use Preview panel is visible
+                                                    if (!browserPanels.showDirectUsePreview) {
+                                                        setBrowserPanels({ showDirectUsePreview: true });
+                                                    }
                                                 }
                                             }}
                                             className="cursor-pointer transition-colors hover:bg-accent"
@@ -928,6 +912,23 @@ export function ProjectBrowser() {
                                                             Prompt
                                                         </Badge>
                                                     </div>
+                                                    {parentProject && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                // Open in main editor
+                                                                setSelectedProject(parentProject);
+                                                                setCurrentProject(parentProject);
+                                                                setCurrentPrompt(prompt);
+                                                                navigate('/editor');
+                                                            }}
+                                                            title="Open in main editor"
+                                                        >
+                                                            <ExternalLink className="w-4 h-4" />
+                                                        </Button>
+                                                    )}
                                                 </div>
                                                 <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                                                     <Calendar className="w-3 h-3" />
@@ -968,6 +969,8 @@ export function ProjectBrowser() {
                                 for (const entry of entries) {
                                     const width = entry.contentRect.width;
                                     setCompactActions(width < 520);
+                                    // Compact prompt cards when width is less than 400px
+                                    setCompactPromptCards(width < 400);
                                 }
                             });
                             ro.observe(el);
@@ -1074,9 +1077,17 @@ export function ProjectBrowser() {
                                                 if (bulkMode) {
                                                     handleBulkSelect(prompt.id);
                                                 } else {
+                                                    // Open in mini editor (default behavior)
                                                     setCurrentProject(selectedProject);
                                                     setCurrentPrompt(prompt);
-                                                    navigate('/editor');
+                                                    setMiniEditorContext({ 
+                                                        projectId: selectedProject.id, 
+                                                        promptId: prompt.id 
+                                                    });
+                                                    // Ensure Direct Use Preview panel is visible
+                                                    if (!browserPanels.showDirectUsePreview) {
+                                                        setBrowserPanels({ showDirectUsePreview: true });
+                                                    }
                                                 }
                                             }}
                                             className={`cursor-pointer transition-colors ${selectedPrompts.has(prompt.id) ? 'bg-accent' : ''
@@ -1117,57 +1128,142 @@ export function ProjectBrowser() {
                                                     </div>
                                                     {!bulkMode && (
                                                         <div className="flex gap-1">
+                                                            {/* Always show: Open in main editor button (first) */}
                                                             <Button
                                                                 variant="ghost"
                                                                 size="sm"
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
-                                                                    handleToggleFavourite(prompt.id);
+                                                                    // Open in main editor
+                                                                    setCurrentProject(selectedProject);
+                                                                    setCurrentPrompt(prompt);
+                                                                    navigate('/editor');
                                                                 }}
-                                                                className={prompt.tags.includes('Favourite') ? 'text-yellow-500' : 'text-muted-foreground'}
-                                                                title={prompt.tags.includes('Favourite') ? 'Remove from favourites' : 'Add to favourites'}
+                                                                title="Open in main editor"
                                                             >
-                                                                <Star className={`w-4 h-4 ${prompt.tags.includes('Favourite') ? 'fill-current' : ''}`} />
+                                                                <ExternalLink className="w-4 h-4" />
                                                             </Button>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    startEditingPrompt(prompt);
-                                                                }}
-                                                            >
-                                                                <Edit className="w-4 h-4" />
-                                                            </Button>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleDuplicatePrompt(prompt);
-                                                                }}
-                                                            >
-                                                                <Copy className="w-4 h-4" />
-                                                            </Button>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    deletePrompt(prompt.id);
-
-                                                                    // Update selectedProject to remove the deleted prompt
-                                                                    if (selectedProject) {
-                                                                        const updatedProject = {
-                                                                            ...selectedProject,
-                                                                            prompts: selectedProject.prompts.filter(id => id !== prompt.id)
-                                                                        };
-                                                                        setSelectedProject(updatedProject);
-                                                                    }
-                                                                }}
-                                                            >
-                                                                <X className="w-4 h-4" />
-                                                            </Button>
+                                                            
+                                                            {compactPromptCards ? (
+                                                                // Compact mode: Favorite and Rename in dropdown
+                                                                <DropdownMenu>
+                                                                    <DropdownMenuTrigger asChild>
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="sm"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                            }}
+                                                                            title="More options"
+                                                                        >
+                                                                            <MoreVertical className="w-4 h-4" />
+                                                                        </Button>
+                                                                    </DropdownMenuTrigger>
+                                                                    <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                                                                        <DropdownMenuItem
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleToggleFavourite(prompt.id);
+                                                                            }}
+                                                                        >
+                                                                            <Star className={`w-4 h-4 mr-2 ${prompt.tags.includes('Favourite') ? 'fill-current text-yellow-500' : ''}`} />
+                                                                            {prompt.tags.includes('Favourite') ? 'Remove from favourites' : 'Add to favourites'}
+                                                                        </DropdownMenuItem>
+                                                                        <DropdownMenuItem
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                startEditingPrompt(prompt);
+                                                                            }}
+                                                                        >
+                                                                            <Edit className="w-4 h-4 mr-2" />
+                                                                            Rename
+                                                                        </DropdownMenuItem>
+                                                                        <DropdownMenuItem
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleDuplicatePrompt(prompt);
+                                                                            }}
+                                                                        >
+                                                                            <Copy className="w-4 h-4 mr-2" />
+                                                                            Duplicate
+                                                                        </DropdownMenuItem>
+                                                                        <DropdownMenuSeparator />
+                                                                        <DropdownMenuItem
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setDeletePromptId(prompt.id);
+                                                                            }}
+                                                                            className="text-destructive focus:text-destructive"
+                                                                        >
+                                                                            <X className="w-4 h-4 mr-2" />
+                                                                            Delete
+                                                                        </DropdownMenuItem>
+                                                                    </DropdownMenuContent>
+                                                                </DropdownMenu>
+                                                            ) : (
+                                                                // Full mode: Show Favorite as button, Rename, Duplicate and Delete in dropdown
+                                                                <>
+                                                                    {/* Favorite button (second position) */}
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleToggleFavourite(prompt.id);
+                                                                        }}
+                                                                        className={prompt.tags.includes('Favourite') ? 'text-yellow-500' : 'text-muted-foreground'}
+                                                                        title={prompt.tags.includes('Favourite') ? 'Remove from favourites' : 'Add to favourites'}
+                                                                    >
+                                                                        <Star className={`w-4 h-4 ${prompt.tags.includes('Favourite') ? 'fill-current' : ''}`} />
+                                                                    </Button>
+                                                                    {/* Dropdown menu with Rename, Duplicate and Delete */}
+                                                                    <DropdownMenu>
+                                                                        <DropdownMenuTrigger asChild>
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="sm"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                }}
+                                                                                title="More options"
+                                                                            >
+                                                                                <MoreVertical className="w-4 h-4" />
+                                                                            </Button>
+                                                                        </DropdownMenuTrigger>
+                                                                        <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                                                                            <DropdownMenuItem
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    startEditingPrompt(prompt);
+                                                                                }}
+                                                                            >
+                                                                                <Edit className="w-4 h-4 mr-2" />
+                                                                                Rename
+                                                                            </DropdownMenuItem>
+                                                                            <DropdownMenuItem
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    handleDuplicatePrompt(prompt);
+                                                                                }}
+                                                                            >
+                                                                                <Copy className="w-4 h-4 mr-2" />
+                                                                                Duplicate
+                                                                            </DropdownMenuItem>
+                                                                            <DropdownMenuSeparator />
+                                                                            <DropdownMenuItem
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setDeletePromptId(prompt.id);
+                                                                                }}
+                                                                                className="text-destructive focus:text-destructive"
+                                                                            >
+                                                                                <X className="w-4 h-4 mr-2" />
+                                                                                Delete
+                                                                            </DropdownMenuItem>
+                                                                        </DropdownMenuContent>
+                                                                    </DropdownMenu>
+                                                                </>
+                                                            )}
                                                         </div>
                                                     )}
                                                 </div>
@@ -1254,6 +1350,11 @@ export function ProjectBrowser() {
             <ProjectSettings
                 isOpen={showProjectSettings}
                 onClose={() => setShowProjectSettings(false)}
+                onDeleteRequest={() => {
+                    if (selectedProject) {
+                        setDeleteProjectId(selectedProject.id);
+                    }
+                }}
             />
 
             {/* Advanced Search Modal */}
@@ -1272,18 +1373,47 @@ export function ProjectBrowser() {
                 onCreateFromTemplate={handleCreateFromTemplate}
             />
 
-            {/* Export Options Modal */}
-            <ExportOptionsModal
-                isOpen={showExportModal}
-                onClose={() => {
-                    setShowExportModal(false);
-                    setExportingProject(null);
-                }}
-                onExport={handleProjectExportOptions}
-                exportType="project"
-                project={exportingProject}
-                versions={versions}
-            />
+            {/* Delete Project Confirmation Dialog */}
+            <AlertDialog open={deleteProjectId !== null} onOpenChange={(open) => !open && setDeleteProjectId(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Project</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete "{projects.find(p => p.id === deleteProjectId)?.name}"? This will also delete all prompts in this project. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleConfirmDeleteProject}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Delete Prompt Confirmation Dialog */}
+            <AlertDialog open={deletePromptId !== null} onOpenChange={(open) => !open && setDeletePromptId(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Prompt</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete "{prompts.find(p => p.id === deletePromptId)?.name}"? This will also delete all versions of this prompt. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleConfirmDeletePrompt}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
             {/* Import Preview Modal */}
             {importAnalysis && (

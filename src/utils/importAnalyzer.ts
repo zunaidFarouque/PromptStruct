@@ -55,6 +55,31 @@ export function analyzeImportData(
         type = 'prompt';
         prompts = [data.prompt];
         versions = data.versions || [];
+        
+        // Handle root-level structure field (from 'current' scope exports)
+        // Convert it to a Version if no versions exist
+        if (versions.length === 0) {
+            if (data.structure && Array.isArray(data.structure)) {
+                const structureVersion: Version = {
+                    id: `ver_${Date.now()}_import`,
+                    promptId: data.prompt.id,
+                    createdAt: data.exportedAt || new Date().toISOString(),
+                    structure: data.structure,
+                    isAutoSave: false
+                };
+                versions.push(structureVersion);
+            } else if (data.currentStructure && Array.isArray(data.currentStructure)) {
+                // Handle currentStructure field as fallback (from 'last' or 'all' scope exports)
+                const structureVersion: Version = {
+                    id: `ver_${Date.now()}_import`,
+                    promptId: data.prompt.id,
+                    createdAt: data.exportedAt || new Date().toISOString(),
+                    structure: data.currentStructure,
+                    isAutoSave: false
+                };
+                versions.push(structureVersion);
+            }
+        }
     }
 
     // Detect conflicts
@@ -138,37 +163,82 @@ export function applyImportResolutions(
             if (resolution.resolution === 'skip') {
                 return null;
             } else if (resolution.resolution === 'duplicate') {
-                // Generate new ID and update associated versions
-                const newId = `prompt_${Date.now()}_${prompt.id}`;
+                // Generate new ID and create duplicated versions
+                const timestamp = Date.now();
+                const newId = `prompt_${timestamp}_${prompt.id}`;
                 const associatedVersions = analysis.versions.filter(v => v.promptId === prompt.id);
+                let versionIndex = 0;
                 associatedVersions.forEach(v => {
                     const versionRes = resolutionMap.get(v.id);
                     if (versionRes && versionRes.resolution !== 'skip') {
-                        versions.push({ ...v, id: `ver_${Date.now()}_${v.id}`, promptId: newId });
+                        // Create new version with new ID for duplicated prompt
+                        const newVersionId = `ver_${timestamp}_${versionIndex}_${v.id}`;
+                        versions.push({ ...v, id: newVersionId, promptId: newId });
+                        versionIndex++;
                     }
                 });
+                // Return duplicated prompt (original prompt will be processed separately)
                 return { ...prompt, id: newId };
             }
         }
         return prompt;
     }).filter(Boolean) as Prompt[];
 
-    // Apply version resolutions (only those not already processed)
+    // Apply version resolutions
+    // Note: When a prompt is duplicated, we create new versions for it above.
+    // The original versions should still be added for the original prompt.
     analysis.versions.forEach(version => {
         const resolution = resolutionMap.get(version.id);
         if (resolution && resolution.resolution === 'skip') {
             return; // Skip this version
         }
         
-        // Check if this version was already added during prompt duplication
-        const alreadyAdded = versions.some(v => v.id === version.id || v.promptId === version.promptId);
+        // Check if this version was already added (e.g., during duplication)
+        const alreadyAdded = versions.some(v => v.id === version.id);
         if (!alreadyAdded) {
             if (resolution && resolution.resolution === 'duplicate') {
+                // Create a duplicate version with new ID
                 versions.push({ ...version, id: `ver_${Date.now()}_${version.id}` });
             } else {
+                // Add the original version (for original prompt)
                 versions.push(version);
             }
         }
+    });
+
+    // Update prompt metadata: set versions array and currentVersion
+    // This ensures prompts reference their imported versions correctly
+    prompts = prompts.map(prompt => {
+        // Find all versions for this prompt
+        const promptVersions = versions.filter(v => v.promptId === prompt.id);
+        
+        if (promptVersions.length > 0) {
+            // Sort versions by creation date (most recent first)
+            const sortedVersions = [...promptVersions].sort((a, b) => 
+                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            );
+            
+            // Get version IDs, excluding autosaves for the versions array
+            const versionIds = promptVersions
+                .filter(v => !v.isAutoSave)
+                .map(v => v.id);
+            
+            // Set currentVersion to the most recent non-autosave version, or the most recent if all are autosaves
+            const currentVersion = sortedVersions.find(v => !v.isAutoSave)?.id || sortedVersions[0]?.id || '';
+            
+            return {
+                ...prompt,
+                versions: versionIds.length > 0 ? versionIds : [currentVersion].filter(Boolean),
+                currentVersion: currentVersion || prompt.currentVersion || ''
+            };
+        }
+        
+        // If no versions found, keep prompt as-is but ensure versions array exists
+        return {
+            ...prompt,
+            versions: prompt.versions || [],
+            currentVersion: prompt.currentVersion || ''
+        };
     });
 
     return { projects, prompts, versions };
