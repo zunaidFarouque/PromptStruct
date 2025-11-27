@@ -2,7 +2,7 @@
 
 Design, organize, and iterate on complex AI prompts with confidence. PromptStruct is a modern, offline-first prompt authoring studio that helps you build reusable prompt structures, preview outputs, manage projects, and share configurations — all with a delightful UX.
 
-[Live site: https://vfxturjo.github.io/PromptStruct/](https://vfxturjo.github.io/PromptStruct/)
+[Live site: https://zunaidFarouque.github.io/PromptStruct/](https://zunaidFarouque.github.io/PromptStruct/)
 
 ### Why PromptStruct?
 - **Structure-first**: Model complex prompts into elements, variants, and templates.
