@@ -1,4 +1,4 @@
-import { useEditorStore } from '@/stores/editorStore';
+import { useEditorStore, type PromptUIState } from '@/stores/editorStore';
 import { Project, Prompt } from '@/types';
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -174,6 +174,42 @@ export function ProjectBrowser() {
         ? projects.filter(project => project.id !== transferSourceProject.id)
         : projects;
 
+    const clonePromptUIState = (sourcePromptId: string, targetPromptId: string) => {
+        const state = useEditorStore.getState();
+        const sourceState = state.promptUIStates[sourcePromptId];
+        if (!sourceState) return;
+
+        const clonedState: PromptUIState = {
+            starredControls: Object.fromEntries(
+                Object.entries(sourceState.starredControls || {}).map(([elementId, controls]) => [
+                    elementId,
+                    Array.isArray(controls) ? [...controls] : []
+                ])
+            ),
+            starredTextBoxes: Array.isArray(sourceState.starredTextBoxes) ? [...sourceState.starredTextBoxes] : [],
+            uiGlobalControlValues: { ...(sourceState.uiGlobalControlValues || {}) },
+            uiCollapsedByElementId: Object.fromEntries(
+                Object.entries(sourceState.uiCollapsedByElementId || {}).map(([elementId, collapse]) => {
+                    const baseState = collapse
+                        ? { ...collapse }
+                        : { text: true, controls: true };
+                    return [
+                        elementId,
+                        {
+                            ...baseState,
+                            lastExpandedState: baseState.lastExpandedState
+                                ? { ...baseState.lastExpandedState }
+                                : undefined
+                        }
+                    ];
+                })
+            ),
+            uiMiniEditorCollapsed: { ...(sourceState.uiMiniEditorCollapsed || {}) }
+        };
+
+        state.setPromptUIState(targetPromptId, clonedState);
+    };
+
     const handleCreateProject = () => {
         if (!newProjectName.trim()) return;
 
@@ -290,6 +326,7 @@ export function ProjectBrowser() {
 
         addPrompt(duplicatedPrompt);
         NotificationService.promptCreated(duplicatedPrompt.name);
+        clonePromptUIState(prompt.id, duplicatedPrompt.id);
 
         // Add duplicated prompt to the same project
         if (selectedProject) {
@@ -357,6 +394,7 @@ export function ProjectBrowser() {
             };
 
             addPrompt(duplicatedPrompt);
+            clonePromptUIState(prompt.id, duplicatedPrompt.id);
 
             const updatedTargetProject = {
                 ...targetProject,
