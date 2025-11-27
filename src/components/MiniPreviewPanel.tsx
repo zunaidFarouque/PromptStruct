@@ -1,5 +1,5 @@
 import { useEditorStore } from '@/stores/editorStore';
-import { parseControlSyntax, renderPrompt } from '@/utils/syntaxParser';
+import { getProcessedElementContent } from '@/utils/elementOutput';
 import { MiniStructureEditor } from './MiniStructureEditor';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { Button } from '@/components/ui/button';
@@ -9,11 +9,10 @@ import { NotificationService } from '@/services/notificationService';
 export function DirectUsePanel() {
     const { structure, uiGlobalControlValues, browserPanels, setBrowserPanels } = useEditorStore();
 
-    const enabled = structure.filter(el => el.enabled);
-    const rendered = enabled.map(element => {
-        const controls = parseControlSyntax(element.content);
-        return renderPrompt(element.content, controls, uiGlobalControlValues);
-    }).join('\n\n');
+    const renderedChunks = structure
+        .map(element => getProcessedElementContent(element, 'clean', uiGlobalControlValues))
+        .filter(content => content.length > 0);
+    const rendered = renderedChunks.join('\n\n');
 
     const handleCopyPrompt = () => {
         navigator.clipboard.writeText(rendered).then(() => {
@@ -86,7 +85,7 @@ export function DirectUsePanel() {
                     <div className="flex-shrink-0 mt-2">
                         <Button
                             onClick={handleCopyPrompt}
-                            disabled={enabled.length === 0}
+                            disabled={rendered.length === 0}
                             className="w-full"
                             size="sm"
                         >
@@ -122,7 +121,7 @@ export function DirectUsePanel() {
                             <div className="flex-shrink-0 mt-2">
                                 <Button
                                     onClick={handleCopyPrompt}
-                                    disabled={enabled.length === 0}
+                                    disabled={rendered.length === 0}
                                     className="w-full"
                                     size="sm"
                                 >
@@ -139,7 +138,7 @@ export function DirectUsePanel() {
                         <div className="h-full panel-padding flex flex-col">
                             <div className="text-sm text-muted-foreground mb-2 text-center">Output Prompt</div>
                             <div className="flex-1 overflow-auto whitespace-pre-wrap font-mono text-sm">
-                                {enabled.length === 0 ? (
+                                {rendered.length === 0 ? (
                                     <div className="text-center py-8">
                                         <div className="text-4xl mb-4">✨</div>
                                         <p>Your rendered prompt will appear here...</p>

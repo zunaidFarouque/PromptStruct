@@ -1,5 +1,5 @@
 import { StructuralElement } from '@/types';
-import { renderPrompt, parseControlSyntax } from '@/utils/syntaxParser';
+import { getProcessedElementContent } from '@/utils/elementOutput';
 
 export interface PreviewPosition {
     start: number;
@@ -25,21 +25,16 @@ export function createPreviewMapping(
     const positions: PreviewPosition[] = [];
     let currentPosition = 0;
 
-    const enabledElements = structure.filter(el => el.enabled);
+    const renderableElements = structure
+        .map(element => ({
+            element,
+            content: getProcessedElementContent(element, previewMode, globalControlValues),
+        }))
+        .filter(({ content }) => content.length > 0);
 
-    for (const element of enabledElements) {
-        let elementContent: string;
-
-        if (previewMode === 'raw') {
-            elementContent = element.content;
-        } else {
-            // Clean mode - render with control values
-            const controls = parseControlSyntax(element.content);
-            elementContent = renderPrompt(element.content, controls, globalControlValues);
-        }
-
+    renderableElements.forEach(({ element, content }, index) => {
         const start = currentPosition;
-        const end = currentPosition + elementContent.length;
+        const end = currentPosition + content.length;
 
         positions.push({
             start,
@@ -48,8 +43,11 @@ export function createPreviewMapping(
             elementName: element.name
         });
 
-        currentPosition = end + 2; // +2 for the \n\n separator between elements
-    }
+        currentPosition = end;
+        if (index < renderableElements.length - 1) {
+            currentPosition += 2; // account for \n\n separator
+        }
+    });
 
     return {
         positions,
@@ -77,24 +75,20 @@ export function createPreviewHTML(
     previewMode: 'clean' | 'raw',
     globalControlValues: Record<string, any>
 ): string {
-    const enabledElements = structure.filter(el => el.enabled);
+    const renderableElements = structure
+        .map(element => ({
+            element,
+            content: getProcessedElementContent(element, previewMode, globalControlValues),
+        }))
+        .filter(({ content }) => content.length > 0);
 
-    if (enabledElements.length === 0) {
+    if (renderableElements.length === 0) {
         return '<div class="text-center py-8"><div class="text-4xl mb-4">✨</div><p>Your rendered prompt will appear here...</p><small class="text-muted-foreground">Add some elements to get started</small></div>';
     }
 
-    const htmlParts = enabledElements.map(element => {
-        let elementContent: string;
-
-        if (previewMode === 'raw') {
-            elementContent = element.content;
-        } else {
-            const controls = parseControlSyntax(element.content);
-            elementContent = renderPrompt(element.content, controls, globalControlValues);
-        }
-
+    const htmlParts = renderableElements.map(({ element, content }) => {
         // Escape HTML and wrap with data attributes
-        const escapedContent = elementContent
+        const escapedContent = content
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')

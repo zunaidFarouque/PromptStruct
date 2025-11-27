@@ -1,6 +1,29 @@
-import { create } from 'zustand';
+import { create, StoreApi } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { StructuralElement, Project, Prompt, Version } from '@/types';
+
+type StructuralElementWithOptionalSanitize = Omit<StructuralElement, 'autoRemoveEmptyLines'> & {
+    autoRemoveEmptyLines?: boolean;
+};
+
+const ensureElementDefaults = (element: StructuralElementWithOptionalSanitize): StructuralElement => ({
+    ...element,
+    autoRemoveEmptyLines: element.autoRemoveEmptyLines ?? true,
+});
+
+const ensureStructureDefaults = (
+    structure: StructuralElementWithOptionalSanitize[] = []
+): StructuralElement[] => structure.map(ensureElementDefaults);
+
+const ensureVersionStructureDefaults = (versions: Version[] = []): Version[] =>
+    versions.map((version) => ({
+        ...version,
+        structure: ensureStructureDefaults(
+            version.structure as unknown as StructuralElementWithOptionalSanitize[]
+        ),
+    }));
+
+let persistSetRef: StoreApi<EditorState>['setState'] | null = null;
 
 interface SyncState {
     isSignedIn: boolean;
@@ -147,26 +170,31 @@ interface EditorState {
 
 export const useEditorStore = create<EditorState>()(
     persist(
-        (set, get) => ({
+        (set, get) => {
+            persistSetRef = set;
+            return {
             // Initial state
             structure: [
                 {
                     id: 'struct_1',
                     name: 'Persona',
                     enabled: true,
-                    content: 'You are a master storyteller. Your task is to create compelling characters based on the following traits.'
+                    content: 'You are a master storyteller. Your task is to create compelling characters based on the following traits.',
+                    autoRemoveEmptyLines: true,
                 },
                 {
                     id: 'struct_2',
                     name: 'Core Traits',
                     enabled: true,
-                    content: 'The character is a {{select:Class:Warrior|Mage|Rogue}} of the {{text:Race:Elven}} race. They are known for their {{text:Key_Virtue:Bravery}}.'
+                    content: 'The character is a {{select:Class:Warrior|Mage|Rogue}} of the {{text:Race:Elven}} race. They are known for their {{text:Key_Virtue:Bravery}}.',
+                    autoRemoveEmptyLines: true,
                 },
                 {
                     id: 'struct_3',
                     name: 'Extra Details',
                     enabled: false,
-                    content: '{{toggle:Add_Secret}}They harbor a dark secret: they are secretly afraid of {{text:Secret_Fear:spiders}}.{{/toggle:Add_Secret}}'
+                    content: '{{toggle:Add_Secret}}They harbor a dark secret: they are secretly afraid of {{text:Secret_Fear:spiders}}.{{/toggle:Add_Secret}}',
+                    autoRemoveEmptyLines: true,
                 }
             ],
             previewMode: 'clean',
@@ -231,6 +259,7 @@ export const useEditorStore = create<EditorState>()(
                             ...element,
                             // Preserve provided id if present (useful for tests); otherwise generate one
                             id: (element as any).id ?? `struct_${Date.now()}`,
+                            autoRemoveEmptyLines: element.autoRemoveEmptyLines ?? true,
                         },
                     ],
                 })),
@@ -603,9 +632,11 @@ export const useEditorStore = create<EditorState>()(
                 }
                 
                 // If no structure found, use empty array (will be initialized when user starts editing)
+                const normalizedStructure = ensureStructureDefaults(structureToLoad);
+
                 set({ 
                     currentPrompt: prompt,
-                    structure: structureToLoad.length > 0 ? structureToLoad : [],
+                    structure: normalizedStructure.length > 0 ? normalizedStructure : [],
                     starredControls: uiStateToLoad.starredControls,
                     starredTextBoxes: uiStateToLoad.starredTextBoxes,
                     uiGlobalControlValues: uiStateToLoad.uiGlobalControlValues,
@@ -711,7 +742,8 @@ export const useEditorStore = create<EditorState>()(
                     }
                 });
             },
-        }),
+            };
+        },
         {
             name: 'promptstruct-storage',
             partialize: (state) => ({
@@ -739,6 +771,19 @@ export const useEditorStore = create<EditorState>()(
                 miniEditor: state.miniEditor,
                 sync: state.sync,
             }),
+            onRehydrateStorage: () => (state) => {
+                if (!state || !persistSetRef) {
+                    return;
+                }
+
+                persistSetRef((current) => ({
+                    ...current,
+                    structure: ensureStructureDefaults(
+                        state.structure as unknown as StructuralElementWithOptionalSanitize[]
+                    ),
+                    versions: ensureVersionStructureDefaults(state.versions),
+                }));
+            },
         }
     )
 );

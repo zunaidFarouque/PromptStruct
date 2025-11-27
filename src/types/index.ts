@@ -31,6 +31,7 @@ export interface StructuralElement {
     name: string;
     enabled: boolean;
     content: string;
+    autoRemoveEmptyLines: boolean;
 }
 
 export interface Version {

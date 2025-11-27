@@ -28,7 +28,8 @@ describe('StructuralElementCard', () => {
         id: 'test-1',
         name: 'Test Element',
         enabled: true,
-        content: 'Test content with {{text:Name:Default}} control'
+        content: 'Test content with {{text:Name:Default}} control',
+        autoRemoveEmptyLines: true,
     }
 
     const defaultProps = {
@@ -78,10 +79,11 @@ describe('StructuralElementCard', () => {
         expect(defaultProps.onToggle).toHaveBeenCalledWith('test-1')
     })
 
-    it('should call onDelete when delete button is clicked', () => {
+    it('should call onDelete when delete option is selected', () => {
         render(<StructuralElementCard element={mockElement} {...defaultProps} />)
-        const deleteButton = screen.getByTitle('trash')
-        fireEvent.click(deleteButton)
+        fireEvent.click(screen.getByLabelText('Element options'))
+        const deleteItem = screen.getByText('Delete element')
+        fireEvent.click(deleteItem)
         expect(defaultProps.onDelete).toHaveBeenCalledWith('test-1')
     })
 
@@ -110,6 +112,14 @@ describe('StructuralElementCard', () => {
         const controlsToggle = screen.getByTitle('Hide dynamic controls')
         fireEvent.click(controlsToggle)
         expect(defaultProps.onCollapsedChange).toHaveBeenCalledWith({ text: false, controls: true })
+    })
+
+    it('should toggle auto-remove empty lines from the menu', () => {
+        render(<StructuralElementCard element={mockElement} {...defaultProps} />)
+        fireEvent.click(screen.getByLabelText('Element options'))
+        const menuItem = screen.getByText('Auto-remove empty lines')
+        fireEvent.click(menuItem)
+        expect(defaultProps.onUpdate).toHaveBeenCalledWith('test-1', { autoRemoveEmptyLines: false })
     })
 
     it('should handle element with no controls', () => {

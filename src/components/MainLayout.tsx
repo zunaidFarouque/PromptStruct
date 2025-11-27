@@ -4,7 +4,7 @@ import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, us
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { StructuralElement } from '@/types';
 import { useEffect, useState, useRef } from 'react';
-import { renderPrompt, parseControlSyntax } from '@/utils/syntaxParser';
+import { getProcessedElementContent } from '@/utils/elementOutput';
 import { useNavigate } from 'react-router-dom';
 import { NotificationService } from '@/services/notificationService';
 import { useKeyboardShortcuts, CommonShortcuts } from '@/services/keyboardShortcuts';
@@ -67,8 +67,8 @@ export function MainLayout() {
         }
     };
 
-    const handleCopyPrompt = () => {
-        const renderedPrompt = renderPreviewForCopy();
+    const handleCopyPrompt = (content?: string) => {
+        const renderedPrompt = content ?? renderPreviewForCopy();
         navigator.clipboard.writeText(renderedPrompt).then(() => {
             NotificationService.success('Prompt copied to clipboard!');
         }).catch(() => {
@@ -88,14 +88,15 @@ export function MainLayout() {
                 addStructuralElement({
                     name: 'New Element',
                     enabled: true,
-                    content: 'Enter your content here...'
+                    content: 'Enter your content here...',
+                    autoRemoveEmptyLines: true,
                 });
             }
         },
         {
             key: 'c',
             ctrlKey: true,
-            action: handleCopyPrompt,
+            action: () => handleCopyPrompt(),
             description: 'Copy prompt to clipboard'
         },
         {
@@ -153,7 +154,8 @@ export function MainLayout() {
             id: `element_${Date.now()}`,
             name: 'New Element',
             enabled: true,
-            content: 'Enter your prompt content here...'
+            content: 'Enter your prompt content here...',
+            autoRemoveEmptyLines: true,
         };
         addStructuralElement(newElement);
     };
@@ -284,60 +286,52 @@ export function MainLayout() {
         }
     };
 
-    const renderPreviewForCopy = () => {
-        const enabledElements = structure.filter(el => el.enabled);
+    const getRenderableElements = () =>
+        structure
+            .map((element) => ({
+                element,
+                content: getProcessedElementContent(element, previewMode, uiGlobalControlValues),
+            }))
+            .filter(({ content }) => content.length > 0);
 
-        if (enabledElements.length === 0) {
+    const renderPreviewForCopy = () => {
+        const renderableElements = getRenderableElements();
+
+        if (renderableElements.length === 0) {
             return '';
         }
 
-        const renderedContent = enabledElements.map(element => {
-            let elementContent: string;
-
-            if (previewMode === 'raw') {
-                elementContent = element.content;
-            } else {
-                const controls = parseControlSyntax(element.content);
-                elementContent = renderPrompt(element.content, controls, uiGlobalControlValues);
-            }
-
-            return elementContent;
-        }).join('\n\n');
-
-        return renderedContent;
+        return renderableElements.map(({ content }) => content).join('\n\n');
     };
 
     const renderPreview = () => {
-        const enabledElements = structure.filter(el => el.enabled);
+        const renderableElements = getRenderableElements();
 
-        if (enabledElements.length === 0) {
+        if (renderableElements.length === 0) {
             return '';
         }
 
-        const renderedContent = enabledElements.map(element => {
-            let elementContent: string;
+        const renderedContent = renderableElements
+            .map(({ element, content }) => {
+                const escapedContent = content
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;')
+                    .replace(/\n/g, '<br>');
 
-            if (previewMode === 'raw') {
-                elementContent = element.content;
-            } else {
-                const controls = parseControlSyntax(element.content);
-                elementContent = renderPrompt(element.content, controls, uiGlobalControlValues);
-            }
-
-            // Escape HTML and wrap with data attributes
-            const escapedContent = elementContent
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;')
-                .replace(/\n/g, '<br>'); // Convert line breaks to <br> tags for HTML display
-
-            return `<span data-element-id="${element.id}" data-element-name="${element.name}">${escapedContent}</span>`;
-        }).join('\n\n');
+                return `<span data-element-id="${element.id}" data-element-name="${element.name}">${escapedContent}</span>`;
+            })
+            .join('\n\n');
 
         return renderedContent;
     };
+
+    const previewHtml = renderPreview();
+    const hasPreviewContent = previewHtml.length > 0;
+    const copyablePrompt = renderPreviewForCopy();
+    const hasCopyablePrompt = copyablePrompt.length > 0;
 
     return (
         <div className="h-screen flex flex-col overflow-hidden bg-background text-foreground">
@@ -485,22 +479,22 @@ export function MainLayout() {
                                             }
                                         }}
                                     >
-                                        {structure.length === 0 ? (
+                                        {!hasPreviewContent ? (
                                             <div className="text-center py-8">
                                                 <div className="text-4xl mb-4">✨</div>
                                                 <p>Your rendered prompt will appear here...</p>
                                                 <small className="text-muted-foreground">Add some elements to get started</small>
                                             </div>
                                         ) : (
-                                            <div dangerouslySetInnerHTML={{ __html: renderPreview() }} />
+                                            <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
                                         )}
                                     </div>
                                 </div>
                             </div>
                             <div className="flex-shrink-0 mt-4">
                                 <Button
-                                    onClick={handleCopyPrompt}
-                                    disabled={structure.length === 0}
+                                    onClick={() => handleCopyPrompt(copyablePrompt)}
+                                    disabled={!hasCopyablePrompt}
                                     className="w-full"
                                 >
                                     <Copy className="w-4 h-4 mr-2" />

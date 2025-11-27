@@ -22,7 +22,8 @@ describe('Editor Store', () => {
                 id: 'test-1',
                 name: 'Test Element',
                 enabled: true,
-                content: 'Test content'
+                content: 'Test content',
+                autoRemoveEmptyLines: true,
             }
 
             useEditorStore.getState().addStructuralElement(element)
@@ -37,7 +38,8 @@ describe('Editor Store', () => {
                 id: 'test-1',
                 name: 'Test Element',
                 enabled: true,
-                content: 'Test content'
+                content: 'Test content',
+                autoRemoveEmptyLines: true,
             }
 
             useEditorStore.getState().addStructuralElement(element)
@@ -53,7 +55,8 @@ describe('Editor Store', () => {
                 id: 'test-1',
                 name: 'Test Element',
                 enabled: true,
-                content: 'Test content'
+                content: 'Test content',
+                autoRemoveEmptyLines: true,
             }
 
             useEditorStore.getState().addStructuralElement(element)
@@ -68,7 +71,8 @@ describe('Editor Store', () => {
                 id: 'test-1',
                 name: 'Test Element',
                 enabled: true,
-                content: 'Test content'
+                content: 'Test content',
+                autoRemoveEmptyLines: true,
             }
 
             useEditorStore.getState().addStructuralElement(element)
@@ -83,14 +87,28 @@ describe('Editor Store', () => {
                 id: 'test-1',
                 name: 'Element 1',
                 enabled: true,
-                content: 'Content 1'
+                content: 'Content 1',
+                autoRemoveEmptyLines: true,
             }
             const element2: StructuralElement = {
                 id: 'test-2',
                 name: 'Element 2',
                 enabled: true,
-                content: 'Content 2'
+                content: 'Content 2',
+                autoRemoveEmptyLines: true,
             }
+        it('should default autoRemoveEmptyLines to true when adding legacy element', () => {
+            const element = {
+                id: 'legacy-1',
+                name: 'Legacy Element',
+                enabled: true,
+                content: 'Legacy content'
+            } as any
+
+            useEditorStore.getState().addStructuralElement(element)
+
+            expect(useEditorStore.getState().structure[0].autoRemoveEmptyLines).toBe(true)
+        })
 
             useEditorStore.getState().addStructuralElement(element1)
             useEditorStore.getState().addStructuralElement(element2)

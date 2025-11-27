@@ -9,7 +9,15 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
-import { GripVertical, Trash2, ChevronDown, ChevronRight, Eye, EyeOff, Edit2, Star } from 'lucide-react';
+import { GripVertical, Trash2, ChevronDown, ChevronRight, Eye, EyeOff, Edit2, Star, MoreVertical } from 'lucide-react';
+import {
+    DropdownMenu,
+    DropdownMenuTrigger,
+    DropdownMenuContent,
+    DropdownMenuCheckboxItem,
+    DropdownMenuSeparator,
+    DropdownMenuItem
+} from '@/components/ui/dropdown-menu';
 
 interface StructuralElementCardProps {
     element: StructuralElement;
@@ -202,16 +210,36 @@ export const StructuralElementCard = forwardRef<StructuralElementCardRef, Struct
                                 id={`toggle-${element.id}`}
                             />
                         </div>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onDelete(element.id)}
-                            className="text-destructive hover:text-destructive"
-                            aria-label="trash"
-                            title="trash"
-                        >
-                            <Trash2 className="w-4 h-4" aria-hidden />
-                        </Button>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                                    aria-label="Element options"
+                                >
+                                    <MoreVertical className="w-4 h-4" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                                <DropdownMenuCheckboxItem
+                                    checked={element.autoRemoveEmptyLines ?? true}
+                                    onCheckedChange={(checked) =>
+                                        onUpdate(element.id, { autoRemoveEmptyLines: !!checked })
+                                    }
+                                >
+                                    Auto-remove empty lines
+                                </DropdownMenuCheckboxItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive"
+                                    onSelect={() => onDelete(element.id)}
+                                >
+                                    <Trash2 className="w-4 h-4 mr-2" />
+                                    Delete element
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     </div>
                 </CardHeader>
                 {(isTextExpanded || isControlsExpanded) && (
