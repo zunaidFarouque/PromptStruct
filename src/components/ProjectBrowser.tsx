@@ -20,10 +20,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { TopBar } from './TopBar';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { DirectUsePanel } from './MiniPreviewPanel';
-import { Search, Plus, Upload, FileText, Settings, Download, X, Edit, Copy, FolderOpen, Calendar, Tag, Star, ExternalLink, MoreVertical } from 'lucide-react';
+import { Search, Plus, Upload, FileText, Settings, Download, X, Edit, Copy, FolderOpen, Calendar, Tag, Star, ExternalLink, MoreVertical, ArrowRightLeft } from 'lucide-react';
 
 export function ProjectBrowser() {
     const {
@@ -73,6 +75,10 @@ export function ProjectBrowser() {
     const [showImportPreview, setShowImportPreview] = useState(false);
     const [importAnalysis, setImportAnalysis] = useState<ImportAnalysis | null>(null);
     const [rawImportData, setRawImportData] = useState<any>(null);
+    const [showTransferDialog, setShowTransferDialog] = useState(false);
+    const [transferPromptId, setTransferPromptId] = useState<string | null>(null);
+    const [transferMode, setTransferMode] = useState<'copy' | 'move'>('copy');
+    const [transferTargetProjectId, setTransferTargetProjectId] = useState<string>('');
 
     // Restore selection on mount
     useEffect(() => {
@@ -157,6 +163,16 @@ export function ProjectBrowser() {
     const projectPrompts = selectedProject
         ? prompts.filter(prompt => selectedProject.prompts.includes(prompt.id))
         : [];
+
+    const getProjectContainingPrompt = (promptId: string) => {
+        return projects.find(project => project.prompts.includes(promptId));
+    };
+
+    const transferPrompt = transferPromptId ? prompts.find(p => p.id === transferPromptId) : null;
+    const transferSourceProject = transferPromptId ? getProjectContainingPrompt(transferPromptId) : null;
+    const transferTargetProjects = transferSourceProject
+        ? projects.filter(project => project.id !== transferSourceProject.id)
+        : projects;
 
     const handleCreateProject = () => {
         if (!newProjectName.trim()) return;
@@ -284,6 +300,104 @@ export function ProjectBrowser() {
             updateProject(selectedProject.id, updatedProject);
             setSelectedProject(updatedProject);
         }
+    };
+
+    const resetTransferState = () => {
+        setShowTransferDialog(false);
+        setTransferPromptId(null);
+        setTransferMode('copy');
+        setTransferTargetProjectId('');
+    };
+
+    const startTransferPrompt = (prompt: Prompt) => {
+        const sourceProject = getProjectContainingPrompt(prompt.id);
+        const eligibleProjects = projects.filter(project => project.id !== sourceProject?.id);
+        setTransferPromptId(prompt.id);
+        setTransferMode('copy');
+        setTransferTargetProjectId(eligibleProjects[0]?.id || '');
+        setShowTransferDialog(true);
+    };
+
+    const handleTransferPrompt = () => {
+        if (!transferPromptId) return;
+
+        const prompt = prompts.find(p => p.id === transferPromptId);
+        if (!prompt) {
+            NotificationService.error('Unable to locate the selected prompt.');
+            resetTransferState();
+            return;
+        }
+
+        const targetProject = projects.find(project => project.id === transferTargetProjectId);
+        if (!targetProject) {
+            NotificationService.error('Select a valid target project.');
+            return;
+        }
+
+        const sourceProject = getProjectContainingPrompt(transferPromptId);
+        if (!sourceProject) {
+            NotificationService.error('Unable to determine the prompt’s current project.');
+            resetTransferState();
+            return;
+        }
+
+        if (transferMode === 'move' && targetProject.id === sourceProject.id) {
+            NotificationService.error('Choose a different project to move this prompt.');
+            return;
+        }
+
+        if (transferMode === 'copy') {
+            const duplicatedPrompt: Prompt = {
+                id: `prompt_${Date.now()}`,
+                name: prompt.name,
+                versions: [...prompt.versions],
+                currentVersion: prompt.currentVersion,
+                tags: [...prompt.tags],
+                createdAt: new Date().toISOString()
+            };
+
+            addPrompt(duplicatedPrompt);
+
+            const updatedTargetProject = {
+                ...targetProject,
+                prompts: [...targetProject.prompts, duplicatedPrompt.id]
+            };
+            updateProject(targetProject.id, updatedTargetProject);
+
+            setSelectedProject(updatedTargetProject);
+            setCurrentProject(updatedTargetProject);
+            setCurrentPrompt(duplicatedPrompt);
+            setMiniEditorContext({
+                projectId: updatedTargetProject.id,
+                promptId: duplicatedPrompt.id
+            });
+
+            NotificationService.success(`Prompt copied to "${updatedTargetProject.name}".`);
+        } else {
+            const updatedSourceProject = {
+                ...sourceProject,
+                prompts: sourceProject.prompts.filter(id => id !== prompt.id)
+            };
+            const updatedTargetProject = {
+                ...targetProject,
+                prompts: [...targetProject.prompts, prompt.id]
+            };
+
+            updateProject(sourceProject.id, updatedSourceProject);
+            updateProject(targetProject.id, updatedTargetProject);
+
+            setSelectedProject(updatedTargetProject);
+            setCurrentProject(updatedTargetProject);
+            setCurrentPrompt(prompt);
+            setMiniEditorContext({
+                projectId: updatedTargetProject.id,
+                promptId: prompt.id
+            });
+
+            NotificationService.success(`Prompt moved to "${updatedTargetProject.name}".`);
+        }
+
+        resetTransferState();
     };
 
     const startEditingPrompt = (prompt: Prompt) => {
@@ -1187,6 +1301,15 @@ export function ProjectBrowser() {
                                                                             <Copy className="w-4 h-4 mr-2" />
                                                                             Duplicate
                                                                         </DropdownMenuItem>
+                                                                        <DropdownMenuItem
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                startTransferPrompt(prompt);
+                                                                            }}
+                                                                        >
+                                                                            <ArrowRightLeft className="w-4 h-4 mr-2" />
+                                                                            Copy / Move to project
+                                                                        </DropdownMenuItem>
                                                                         <DropdownMenuSeparator />
                                                                         <DropdownMenuItem
                                                                             onClick={(e) => {
@@ -1248,6 +1371,15 @@ export function ProjectBrowser() {
                                                                             >
                                                                                 <Copy className="w-4 h-4 mr-2" />
                                                                                 Duplicate
+                                                                            </DropdownMenuItem>
+                                                                            <DropdownMenuItem
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    startTransferPrompt(prompt);
+                                                                                }}
+                                                                            >
+                                                                                <ArrowRightLeft className="w-4 h-4 mr-2" />
+                                                                                Copy / Move to project
                                                                             </DropdownMenuItem>
                                                                             <DropdownMenuSeparator />
                                                                             <DropdownMenuItem
@@ -1428,6 +1560,89 @@ export function ProjectBrowser() {
                     importAnalysis={importAnalysis}
                 />
             )}
+
+            {/* Prompt Transfer Dialog */}
+            <Dialog open={showTransferDialog} onOpenChange={(open) => {
+                if (!open) {
+                    resetTransferState();
+                }
+            }}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Copy or Move Prompt</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div>
+                            <p className="text-sm text-muted-foreground">
+                                {transferPrompt
+                                    ? `Select a destination for "${transferPrompt.name}".`
+                                    : 'Select a destination project.'}
+                            </p>
+                            {transferSourceProject && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Current project: {transferSourceProject.name}
+                                </p>
+                            )}
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="transfer-project-select">Destination project</Label>
+                            {transferTargetProjects.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">
+                                    Create another project to enable transfers.
+                                </p>
+                            ) : (
+                                <Select
+                                    value={transferTargetProjectId}
+                                    onValueChange={(value) => setTransferTargetProjectId(value)}
+                                >
+                                    <SelectTrigger id="transfer-project-select">
+                                        <SelectValue placeholder="Select a project" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {transferTargetProjects.map(project => (
+                                            <SelectItem key={project.id} value={project.id}>
+                                                {project.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            )}
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Action</Label>
+                            <RadioGroup
+                                value={transferMode}
+                                onValueChange={(value) => setTransferMode(value as 'copy' | 'move')}
+                                className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+                            >
+                                <div className="flex items-center space-x-2 rounded-md border p-2">
+                                    <RadioGroupItem value="copy" id="transfer-mode-copy" />
+                                    <Label htmlFor="transfer-mode-copy" className="cursor-pointer">
+                                        Copy (keep original)
+                                    </Label>
+                                </div>
+                                <div className="flex items-center space-x-2 rounded-md border p-2">
+                                    <RadioGroupItem value="move" id="transfer-mode-move" />
+                                    <Label htmlFor="transfer-mode-move" className="cursor-pointer">
+                                        Move (remove from current project)
+                                    </Label>
+                                </div>
+                            </RadioGroup>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={resetTransferState}>
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleTransferPrompt}
+                            disabled={!transferTargetProjectId || transferTargetProjects.length === 0}
+                        >
+                            {transferMode === 'copy' ? 'Copy Prompt' : 'Move Prompt'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
