@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
+import { ChevronDown, ChevronRight, RotateCcw, Link, Link2Off } from 'lucide-react';
 
 export function MiniStructureEditor() {
     const {
@@ -25,7 +25,11 @@ export function MiniStructureEditor() {
         resetElementContent,
         resetControlValue,
         getOriginalStructure,
-        promptUIStates
+        promptUIStates,
+        variables,
+        setVariable,
+        toggleTemporarilyUnlinkElement,
+        isElementTemporarilyUnlinked
     } = useEditorStore();
     
     // Get original structure and control values for comparison
@@ -64,7 +68,18 @@ export function MiniStructureEditor() {
                 const isCollapsed = uiMiniEditorCollapsed[element.id] || false;
                 const elementStarredControls = starredControls[element.id] || [];
                 const isTextBoxStarred = Array.isArray(starredTextBoxes) ? starredTextBoxes.includes(element.id) : false;
-                const controls = parseControlSyntax(element.content);
+                const isTemporarilyUnlinked = isElementTemporarilyUnlinked(element.id);
+                
+                // Get content for parsing controls - use variable if linked and not temporarily unlinked
+                const getContentForControls = () => {
+                    if (element.linkedVariable && !isTemporarilyUnlinked) {
+                        const varValue = variables[element.linkedVariable];
+                        return varValue !== undefined ? varValue : element.content;
+                    }
+                    return element.content;
+                };
+                
+                const controls = parseControlSyntax(getContentForControls());
 
                 return (
                     <Card key={element.id} className="bg-muted/30">
@@ -94,35 +109,79 @@ export function MiniStructureEditor() {
                                     {/* Starred text box */}
                                     {isTextBoxStarred && (() => {
                                         const originalElement = originalStructure?.find(el => el.id === element.id);
-                                        // Compare content strings, handling undefined/null cases
+                                        const isTemporarilyUnlinked = isElementTemporarilyUnlinked(element.id);
+                                        
+                                        // Get current content - use variable if linked and not temporarily unlinked
+                                        const getCurrentContent = () => {
+                                            if (element.linkedVariable && !isTemporarilyUnlinked) {
+                                                const varValue = variables[element.linkedVariable];
+                                                return varValue !== undefined ? varValue : element.content;
+                                            }
+                                            return element.content;
+                                        };
+                                        
+                                        const currentContent = getCurrentContent();
                                         const originalContent = originalElement?.content ?? '';
-                                        const currentContent = element.content ?? '';
                                         const hasChanges = originalContent !== currentContent;
+                                        
+                                        // Handle content change
+                                        const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                                            const newValue = e.target.value;
+                                            
+                                            if (element.linkedVariable && !isTemporarilyUnlinked) {
+                                                // Update the variable, which will trigger updates in all linked elements
+                                                setVariable(element.linkedVariable, newValue);
+                                            } else {
+                                                // Update the element content directly
+                                                updateStructuralElement(element.id, { content: newValue });
+                                            }
+                                        };
                                         
                                         return (
                                             <div className="space-y-1">
                                                 <Label className="text-xs text-muted-foreground">Text Content</Label>
                                                 <div className="relative group">
-                                                    {hasChanges && (
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            onClick={(e) => {
-                                                                e.preventDefault();
-                                                                e.stopPropagation();
-                                                                if (originalElement) {
-                                                                    resetElementContent(element.id);
-                                                                }
-                                                            }}
-                                                            className="absolute top-2 right-2 w-4 h-4 p-0 z-10 transition-opacity duration-200 opacity-100"
-                                                            title="Reset to original text"
-                                                        >
-                                                            <RotateCcw className="w-4 h-4 text-muted-foreground hover:text-foreground" />
-                                                        </Button>
-                                                    )}
+                                                    <div className="absolute top-2 right-2 flex gap-1 z-10">
+                                                        {element.linkedVariable && (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={(e) => {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                    toggleTemporarilyUnlinkElement(element.id);
+                                                                }}
+                                                                className={`w-4 h-4 p-0 transition-opacity duration-200 opacity-100 ${isTemporarilyUnlinked ? 'text-muted-foreground' : 'text-blue-600 dark:text-blue-400'}`}
+                                                                title={isTemporarilyUnlinked ? 'Re-link to variable' : 'Temporarily unlink from variable'}
+                                                            >
+                                                                {isTemporarilyUnlinked ? (
+                                                                    <Link2Off className="w-4 h-4" />
+                                                                ) : (
+                                                                    <Link className="w-4 h-4" />
+                                                                )}
+                                                            </Button>
+                                                        )}
+                                                        {hasChanges && (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={(e) => {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                    if (originalElement) {
+                                                                        resetElementContent(element.id);
+                                                                    }
+                                                                }}
+                                                                className="w-4 h-4 p-0 transition-opacity duration-200 opacity-100"
+                                                                title="Reset to original text"
+                                                            >
+                                                                <RotateCcw className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                                                            </Button>
+                                                        )}
+                                                    </div>
                                                     <Textarea
-                                                        value={element.content}
-                                                        onChange={(e) => updateStructuralElement(element.id, { content: e.target.value })}
+                                                        value={currentContent}
+                                                        onChange={handleContentChange}
                                                         placeholder="Enter your prompt content here..."
                                                         className="min-h-[60px] font-mono text-sm resize-y"
                                                     />

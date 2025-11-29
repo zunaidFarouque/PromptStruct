@@ -61,6 +61,7 @@ interface PromptUIState {
     uiGlobalControlValues: Record<string, any>; // control name -> value
     uiCollapsedByElementId: Record<string, { text: boolean; controls: boolean; lastExpandedState?: { text: boolean; controls: boolean } }>;
     uiMiniEditorCollapsed: Record<string, boolean>; // elementId -> collapsed state
+    temporarilyUnlinkedElements?: string[]; // elementIds that are temporarily unlinked from variables
     modifiedStructure?: StructuralElement[]; // working copy of structure with modifications
     originalStructure?: StructuralElement[]; // original saved structure for comparison
     originalControlValues?: Record<string, any>; // original control values for comparison
@@ -178,6 +179,10 @@ interface EditorState {
     resetElementContent: (elementId: string) => void;
     resetControlValue: (controlName: string) => void;
     getOriginalStructure: () => StructuralElement[] | undefined;
+
+    // Temporary unlink management
+    toggleTemporarilyUnlinkElement: (elementId: string) => void;
+    isElementTemporarilyUnlinked: (elementId: string) => boolean;
 
     // Variable management
     setVariable: (name: string, value: string) => void;
@@ -978,6 +983,46 @@ export const useEditorStore = create<EditorState>()(
                 
                 const uiState = state.promptUIStates[state.currentPrompt.id];
                 return uiState?.originalStructure;
+            },
+
+            // Temporary unlink management
+            toggleTemporarilyUnlinkElement: (elementId: string) => {
+                set((state) => {
+                    if (!state.currentPrompt) return state;
+                    
+                    const promptUIState = state.promptUIStates[state.currentPrompt.id] || {
+                        starredControls: {},
+                        starredTextBoxes: [],
+                        uiGlobalControlValues: {},
+                        uiCollapsedByElementId: {},
+                        uiMiniEditorCollapsed: {},
+                    };
+                    
+                    const unlinked = promptUIState.temporarilyUnlinkedElements || [];
+                    const isUnlinked = unlinked.includes(elementId);
+                    
+                    const updatedUnlinked = isUnlinked
+                        ? unlinked.filter(id => id !== elementId)
+                        : [...unlinked, elementId];
+                    
+                    return {
+                        promptUIStates: {
+                            ...state.promptUIStates,
+                            [state.currentPrompt.id]: {
+                                ...promptUIState,
+                                temporarilyUnlinkedElements: updatedUnlinked,
+                            },
+                        },
+                    };
+                });
+            },
+            isElementTemporarilyUnlinked: (elementId: string) => {
+                const state = get();
+                if (!state.currentPrompt) return false;
+                
+                const promptUIState = state.promptUIStates[state.currentPrompt.id];
+                const unlinked = promptUIState?.temporarilyUnlinkedElements || [];
+                return unlinked.includes(elementId);
             },
 
             // Variable management
