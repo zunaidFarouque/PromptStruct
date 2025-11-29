@@ -10,9 +10,10 @@ import { NotificationService } from '@/services/notificationService';
 import { useKeyboardShortcuts, CommonShortcuts } from '@/services/keyboardShortcuts';
 import { Button } from '@/components/ui/button';
 import { Kbd } from '@/components/ui/kbd';
-import { Save, Download, Copy, Plus } from 'lucide-react';
+import { Save, Download, Copy, Plus, Variable } from 'lucide-react';
 import { TopBar } from './TopBar';
 import { ExportOptionsModal } from './ExportOptionsModal';
+import { VariablesEditorModal } from './VariablesEditorModal';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 
@@ -40,10 +41,12 @@ export function MainLayout() {
         starredControls,
         starredTextBoxes,
         toggleStarControl,
-        toggleStarTextBox
+        toggleStarTextBox,
+        linkElementToVariable
     } = useEditorStore();
 
     const [showExportModal, setShowExportModal] = useState(false);
+    const [showVariablesModal, setShowVariablesModal] = useState(false);
     const [highlightedElementId, setHighlightedElementId] = useState<string | null>(null);
     const [deleteElementId, setDeleteElementId] = useState<string | null>(null);
 
@@ -358,6 +361,14 @@ export function MainLayout() {
                         >
                             <Download className="w-4 h-4" />
                         </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowVariablesModal(true)}
+                            title="Variables Editor"
+                        >
+                            <Variable className="w-4 h-4" />
+                        </Button>
                     </>
                 }
             />
@@ -412,6 +423,7 @@ export function MainLayout() {
                                                             starredTextBoxes={starredTextBoxes}
                                                             onToggleStarControl={toggleStarControl}
                                                             onToggleStarTextBox={toggleStarTextBox}
+                                                            onLinkVariable={linkElementToVariable}
                                                         />
                                                     ))
                                                 )}
@@ -590,6 +602,10 @@ export function MainLayout() {
                 project={currentProject}
                 prompt={currentPrompt}
                 versions={versions}
+            />
+            <VariablesEditorModal
+                isOpen={showVariablesModal}
+                onClose={() => setShowVariablesModal(false)}
             />
 
             {/* Delete Structural Element Confirmation Dialog */}

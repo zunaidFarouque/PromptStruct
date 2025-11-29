@@ -32,6 +32,7 @@ export interface StructuralElement {
     enabled: boolean;
     content: string;
     autoRemoveEmptyLines: boolean;
+    linkedVariable?: string; // Variable name (e.g., "#imgGen_Face_modifer") when element is linked
 }
 
 export interface Version {
@@ -61,6 +62,14 @@ export interface ParsedControl {
     content?: string; // for toggle blocks
 }
 
+// Variable type for global variable store
+export interface Variable {
+    name: string;
+    value: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
 // Editor state
 export interface EditorState {
     currentProject: Project | null;
@@ -75,6 +84,7 @@ export interface WorkspaceExport {
     projects: Project[];
     prompts: Prompt[];
     versions: Version[];
+    variables?: Record<string, string>; // variable name -> value
     uiState: {
         previewMode: 'clean' | 'raw';
         currentProjectId: string | null;

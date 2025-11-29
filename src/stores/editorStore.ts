@@ -104,6 +104,9 @@ interface EditorState {
     // Mini editor session state
     miniEditor: MiniEditorState;
 
+    // Global variables store (variable name -> value)
+    variables: Record<string, string>;
+
     // Actions
     setPreviewMode: (mode: 'clean' | 'raw') => void;
     updateStructuralElement: (id: string, updates: Partial<StructuralElement>) => void;
@@ -175,6 +178,13 @@ interface EditorState {
     resetElementContent: (elementId: string) => void;
     resetControlValue: (controlName: string) => void;
     getOriginalStructure: () => StructuralElement[] | undefined;
+
+    // Variable management
+    setVariable: (name: string, value: string) => void;
+    getVariable: (name: string) => string | undefined;
+    deleteVariable: (name: string) => void;
+    getAllVariables: () => Record<string, string>;
+    linkElementToVariable: (elementId: string, variableName: string | null) => void;
 }
 
 export const useEditorStore = create<EditorState>()(
@@ -248,6 +258,7 @@ export const useEditorStore = create<EditorState>()(
                 lastKnownRevisionMap: {},
                 pendingPush: false,
             },
+            variables: {},
 
             // Preview mode
             setPreviewMode: (mode) => set({ previewMode: mode }),
@@ -968,6 +979,111 @@ export const useEditorStore = create<EditorState>()(
                 const uiState = state.promptUIStates[state.currentPrompt.id];
                 return uiState?.originalStructure;
             },
+
+            // Variable management
+            setVariable: (name: string, value: string) => {
+                set((state) => ({
+                    variables: {
+                        ...state.variables,
+                        [name]: value,
+                    },
+                }));
+            },
+            getVariable: (name: string) => {
+                const state = get();
+                return state.variables[name];
+            },
+            deleteVariable: (name: string) => {
+                set((state) => {
+                    const { [name]: deleted, ...rest } = state.variables;
+                    
+                    // Unlink all elements that reference this variable
+                    const updatedStructure = state.structure.map((element) =>
+                        element.linkedVariable === name
+                            ? { ...element, linkedVariable: undefined }
+                            : element
+                    );
+                    
+                    // Also update modifiedStructure in promptUIStates if we have a current prompt
+                    let updatedPromptUIStates = state.promptUIStates;
+                    if (state.currentPrompt) {
+                        const currentUIState = state.promptUIStates[state.currentPrompt.id] || {
+                            starredControls: {},
+                            starredTextBoxes: [],
+                            uiGlobalControlValues: {},
+                            uiCollapsedByElementId: {},
+                            uiMiniEditorCollapsed: {},
+                        };
+                        
+                        updatedPromptUIStates = {
+                            ...state.promptUIStates,
+                            [state.currentPrompt.id]: {
+                                ...currentUIState,
+                                modifiedStructure: updatedStructure.map(el => ({ ...el })), // Deep clone
+                                originalStructure: currentUIState.originalStructure,
+                                originalControlValues: currentUIState.originalControlValues,
+                            },
+                        };
+                    }
+                    
+                    return {
+                        variables: rest,
+                        structure: updatedStructure,
+                        promptUIStates: updatedPromptUIStates,
+                    };
+                });
+            },
+            getAllVariables: () => {
+                const state = get();
+                return state.variables;
+            },
+            linkElementToVariable: (elementId: string, variableName: string | null) => {
+                set((state) => {
+                    const element = state.structure.find(el => el.id === elementId);
+                    if (!element) return state;
+                    
+                    let updatedVariables = { ...state.variables };
+                    
+                    // If linking to a variable and variable doesn't exist, initialize it with element's content
+                    if (variableName && !updatedVariables[variableName]) {
+                        updatedVariables[variableName] = element.content;
+                    }
+                    
+                    const updatedStructure = state.structure.map((el) =>
+                        el.id === elementId
+                            ? { ...el, linkedVariable: variableName || undefined }
+                            : el
+                    );
+                    
+                    // Also update modifiedStructure in promptUIStates if we have a current prompt
+                    let updatedPromptUIStates = state.promptUIStates;
+                    if (state.currentPrompt) {
+                        const currentUIState = state.promptUIStates[state.currentPrompt.id] || {
+                            starredControls: {},
+                            starredTextBoxes: [],
+                            uiGlobalControlValues: {},
+                            uiCollapsedByElementId: {},
+                            uiMiniEditorCollapsed: {},
+                        };
+                        
+                        updatedPromptUIStates = {
+                            ...state.promptUIStates,
+                            [state.currentPrompt.id]: {
+                                ...currentUIState,
+                                modifiedStructure: updatedStructure.map(el => ({ ...el })), // Deep clone
+                                originalStructure: currentUIState.originalStructure,
+                                originalControlValues: currentUIState.originalControlValues,
+                            },
+                        };
+                    }
+                    
+                    return {
+                        variables: updatedVariables,
+                        structure: updatedStructure,
+                        promptUIStates: updatedPromptUIStates,
+                    };
+                });
+            },
             };
         },
         {
@@ -996,6 +1112,7 @@ export const useEditorStore = create<EditorState>()(
                 editorPanels: state.editorPanels,
                 miniEditor: state.miniEditor,
                 sync: state.sync,
+                variables: state.variables,
             }),
             onRehydrateStorage: () => (state) => {
                 if (!state || !persistSetRef) {

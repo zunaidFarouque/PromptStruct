@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import { GripVertical, Trash2, ChevronDown, ChevronRight, Eye, EyeOff, Edit2, Star, MoreVertical } from 'lucide-react';
+import { VariableLinkSelector } from './VariableLinkSelector';
+import { useEditorStore } from '@/stores/editorStore';
 import {
     DropdownMenu,
     DropdownMenuTrigger,
@@ -33,6 +35,7 @@ interface StructuralElementCardProps {
     starredTextBoxes: string[];
     onToggleStarControl: (elementId: string, controlName: string) => void;
     onToggleStarTextBox: (elementId: string) => void;
+    onLinkVariable?: (elementId: string, variableName: string | null) => void;
 }
 
 export interface StructuralElementCardRef {
@@ -53,11 +56,38 @@ export const StructuralElementCard = forwardRef<StructuralElementCardRef, Struct
     starredControls,
     starredTextBoxes,
     onToggleStarControl,
-    onToggleStarTextBox
+    onToggleStarTextBox,
+    onLinkVariable
 }, ref) => {
     const [isEditingName, setIsEditingName] = useState(false);
     const [editingName, setEditingName] = useState(element.name);
     const textareaRef = useRef<EnhancedTextareaRef>(null);
+    const { setVariable, variables } = useEditorStore();
+    
+    // Get the current content value - use variable if linked, otherwise use element.content
+    const getCurrentContent = () => {
+        if (element.linkedVariable) {
+            const varValue = variables[element.linkedVariable];
+            return varValue !== undefined ? varValue : element.content;
+        }
+        return element.content;
+    };
+    
+    // Compute current content - reactive to variable changes
+    const currentContent = getCurrentContent();
+    
+    // Handle content change - update variable if linked, otherwise update element
+    const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const newValue = e.target.value;
+        
+        if (element.linkedVariable) {
+            // Update the variable, which will trigger updates in all linked elements
+            setVariable(element.linkedVariable, newValue);
+        } else {
+            // Update the element content directly
+            onUpdate(element.id, { content: newValue });
+        }
+    };
 
     // Expose methods to parent components
     useImperativeHandle(ref, () => ({
@@ -174,15 +204,24 @@ export const StructuralElementCard = forwardRef<StructuralElementCardRef, Struct
                             </span>
                         )}
                         {!isEditingName && (
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={handleRenameClick}
-                                className="text-muted-foreground hover:text-foreground"
-                                title="Rename element"
-                            >
-                                <Edit2 className="w-4 h-4" />
-                            </Button>
+                            <>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={handleRenameClick}
+                                    className="text-muted-foreground hover:text-foreground"
+                                    title="Rename element"
+                                >
+                                    <Edit2 className="w-4 h-4" />
+                                </Button>
+                                {onLinkVariable && (
+                                    <VariableLinkSelector
+                                        elementId={element.id}
+                                        currentVariable={element.linkedVariable}
+                                        onSelect={(variableName) => onLinkVariable(element.id, variableName)}
+                                    />
+                                )}
+                            </>
                         )}
                         <Button
                             variant="ghost"
@@ -259,8 +298,8 @@ export const StructuralElementCard = forwardRef<StructuralElementCardRef, Struct
                                     </Button>
                                     <EnhancedTextarea
                                         ref={textareaRef}
-                                        value={element.content}
-                                        onChange={(e) => onUpdate(element.id, { content: e.target.value })}
+                                        value={currentContent}
+                                        onChange={handleContentChange}
                                         placeholder="Enter your prompt content here..."
                                         className="min-h-[80px] font-mono text-sm resize-y dark:bg-neutral-900"
                                         elementId={element.id}
@@ -275,7 +314,7 @@ export const StructuralElementCard = forwardRef<StructuralElementCardRef, Struct
                                     <h4 className="text-sm font-medium title-spacing section-vpad">Dynamic Controls</h4>
                                 )}
                                 <ControlPanel
-                                    content={element.content}
+                                    content={currentContent}
                                     controlValues={controlValues}
                                     onControlChange={onControlChange}
                                     elementId={element.id}

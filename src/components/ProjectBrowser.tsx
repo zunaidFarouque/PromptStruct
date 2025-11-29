@@ -756,6 +756,13 @@ export function ProjectBrowser() {
                     setUiGlobalControlValues(rawImportData.uiState.globalControlValues);
                 }
                 
+                // Import variables if available
+                if (rawImportData.variables && typeof rawImportData.variables === 'object') {
+                    Object.entries(rawImportData.variables).forEach(([varName, varValue]) => {
+                        state.setVariable(varName, varValue as string);
+                    });
+                }
+                
                 // Restore workspace selection
                 if (rawImportData.uiState.currentProjectId) {
                     const project = resolved.projects.find(p => p.id === rawImportData.uiState.currentProjectId);
