@@ -275,6 +275,9 @@ export const useEditorStore = create<EditorState>()(
                             [state.currentPrompt.id]: {
                                 ...currentUIState,
                                 modifiedStructure: updatedStructure.map(el => ({ ...el })), // Deep clone
+                                // Preserve originalStructure and originalControlValues
+                                originalStructure: currentUIState.originalStructure,
+                                originalControlValues: currentUIState.originalControlValues,
                             },
                         };
                     }
@@ -654,6 +657,10 @@ export const useEditorStore = create<EditorState>()(
                         // Preserve originalStructure and originalControlValues if they exist
                         if (savedUIState.originalStructure) {
                             originalStructureToStore = savedUIState.originalStructure.map(el => ({ ...el })); // Deep clone
+                        } else if (savedUIState.modifiedStructure && savedUIState.modifiedStructure.length > 0) {
+                            // If we have modifiedStructure but no originalStructure, use modifiedStructure as original
+                            // This handles the case where originalStructure wasn't set initially
+                            originalStructureToStore = savedUIState.modifiedStructure.map(el => ({ ...el })); // Deep clone
                         }
                         if (savedUIState.originalControlValues) {
                             originalControlValuesToStore = { ...savedUIState.originalControlValues };
@@ -697,22 +704,27 @@ export const useEditorStore = create<EditorState>()(
                             originalStructureToStore = structureToLoad.map(el => ({ ...el })); // Deep clone
                         }
                         
-                        // Store original control values from the structure's default values
+                        // Store original control values - use saved UI state values if available, otherwise use defaults from structure
                         if (structureToLoad.length > 0 && !originalControlValuesToStore) {
-                            originalControlValuesToStore = {};
-                            // Extract default values from structure
-                            structureToLoad.forEach(element => {
-                                try {
-                                    const controls = parseControlSyntax(element.content);
-                                    controls.forEach((control: any) => {
-                                        if (control.element.defaultValue !== undefined) {
-                                            originalControlValuesToStore![control.element.name] = control.element.defaultValue;
-                                        }
-                                    });
-                                } catch (e) {
-                                    // Ignore parse errors
-                                }
-                            });
+                            // First, try to use the saved UI state's control values (these are the actual saved values from editor)
+                            if (savedUIState && savedUIState.uiGlobalControlValues && Object.keys(savedUIState.uiGlobalControlValues).length > 0) {
+                                originalControlValuesToStore = { ...savedUIState.uiGlobalControlValues };
+                            } else {
+                                // Fallback to default values from structure
+                                originalControlValuesToStore = {};
+                                structureToLoad.forEach(element => {
+                                    try {
+                                        const controls = parseControlSyntax(element.content);
+                                        controls.forEach((control: any) => {
+                                            if (control.element.defaultValue !== undefined) {
+                                                originalControlValuesToStore![control.element.name] = control.element.defaultValue;
+                                            }
+                                        });
+                                    } catch (e) {
+                                        // Ignore parse errors
+                                    }
+                                });
+                            }
                         }
                     }
                 }
@@ -721,15 +733,20 @@ export const useEditorStore = create<EditorState>()(
                 const normalizedStructure = ensureStructureDefaults(structureToLoad);
 
                 // Update promptUIState with originalStructure and originalControlValues if we have them
-                if (prompt && (originalStructureToStore || originalControlValuesToStore)) {
+                // Also, if originalControlValues doesn't exist yet, store the loaded UI state's control values as original
+                if (prompt) {
                     const updatedUIState: Partial<PromptUIState> = {
                         ...uiStateToLoad,
                     };
                     if (originalStructureToStore) {
                         updatedUIState.originalStructure = originalStructureToStore;
                     }
+                    // Store original control values - use the loaded UI state values as the baseline
                     if (originalControlValuesToStore) {
                         updatedUIState.originalControlValues = originalControlValuesToStore;
+                    } else if (uiStateToLoad.uiGlobalControlValues && Object.keys(uiStateToLoad.uiGlobalControlValues).length > 0) {
+                        // If no originalControlValues stored yet, use the loaded control values as original
+                        updatedUIState.originalControlValues = { ...uiStateToLoad.uiGlobalControlValues };
                     }
                     state.setPromptUIState(prompt.id, updatedUIState);
                 }
@@ -849,13 +866,57 @@ export const useEditorStore = create<EditorState>()(
                 if (!state.currentPrompt) return;
                 
                 const uiState = state.promptUIStates[state.currentPrompt.id];
-                if (!uiState?.originalStructure) return;
+                if (!uiState?.originalStructure) {
+                    // If no originalStructure, try to get it from the current structure (first time loading)
+                    // This shouldn't happen, but as a fallback, use current structure as original
+                    const currentElement = state.structure.find(el => el.id === elementId);
+                    if (currentElement) {
+                        // Store current as original for future resets
+                        const updatedUIState: Partial<PromptUIState> = {
+                            ...uiState,
+                            originalStructure: state.structure.map(el => ({ ...el })),
+                        };
+                        state.setPromptUIState(state.currentPrompt.id, updatedUIState);
+                    }
+                    return;
+                }
                 
                 const originalElement = uiState.originalStructure.find(el => el.id === elementId);
                 if (!originalElement) return;
                 
-                // Restore original content
-                state.updateStructuralElement(elementId, { content: originalElement.content });
+                // Restore original content - use set directly to ensure update happens
+                set((state) => {
+                    const updatedStructure = state.structure.map((element) =>
+                        element.id === elementId ? { ...element, content: originalElement.content } : element
+                    );
+                    
+                    // Update modifiedStructure in promptUIStates
+                    let updatedPromptUIStates = state.promptUIStates;
+                    if (state.currentPrompt) {
+                        const currentUIState = state.promptUIStates[state.currentPrompt.id] || {
+                            starredControls: {},
+                            starredTextBoxes: [],
+                            uiGlobalControlValues: {},
+                            uiCollapsedByElementId: {},
+                            uiMiniEditorCollapsed: {},
+                        };
+                        
+                        updatedPromptUIStates = {
+                            ...state.promptUIStates,
+                            [state.currentPrompt.id]: {
+                                ...currentUIState,
+                                modifiedStructure: updatedStructure.map(el => ({ ...el })),
+                                originalStructure: currentUIState.originalStructure,
+                                originalControlValues: currentUIState.originalControlValues,
+                            },
+                        };
+                    }
+                    
+                    return {
+                        structure: updatedStructure,
+                        promptUIStates: updatedPromptUIStates,
+                    };
+                });
             },
             
             resetControlValue: (controlName: string) => {
@@ -867,11 +928,13 @@ export const useEditorStore = create<EditorState>()(
                 
                 const originalValue = uiState.originalControlValues[controlName];
                 
-                // Restore original value (or undefined if not in original)
-                const updatedControlValues = {
-                    ...state.uiGlobalControlValues,
-                    [controlName]: originalValue,
-                };
+                // Restore original value - if originalValue is undefined, remove the key
+                const updatedControlValues = { ...state.uiGlobalControlValues };
+                if (originalValue === undefined) {
+                    delete updatedControlValues[controlName];
+                } else {
+                    updatedControlValues[controlName] = originalValue;
+                }
                 
                 // Update both global state and promptUIState
                 set((state) => {
@@ -883,14 +946,16 @@ export const useEditorStore = create<EditorState>()(
                         uiMiniEditorCollapsed: {},
                     };
                     
+                    const updatedPromptUIState = {
+                        ...promptUIState,
+                        uiGlobalControlValues: { ...updatedControlValues },
+                    };
+                    
                     return {
                         uiGlobalControlValues: updatedControlValues,
                         promptUIStates: {
                             ...state.promptUIStates,
-                            [state.currentPrompt!.id]: {
-                                ...promptUIState,
-                                uiGlobalControlValues: updatedControlValues,
-                            },
+                            [state.currentPrompt!.id]: updatedPromptUIState,
                         },
                     };
                 });

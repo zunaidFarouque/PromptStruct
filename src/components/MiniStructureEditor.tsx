@@ -94,7 +94,10 @@ export function MiniStructureEditor() {
                                     {/* Starred text box */}
                                     {isTextBoxStarred && (() => {
                                         const originalElement = originalStructure?.find(el => el.id === element.id);
-                                        const hasChanges = originalElement && originalElement.content !== element.content;
+                                        // Compare content strings, handling undefined/null cases
+                                        const originalContent = originalElement?.content ?? '';
+                                        const currentContent = element.content ?? '';
+                                        const hasChanges = originalContent !== currentContent;
                                         
                                         return (
                                             <div className="space-y-1">
@@ -104,7 +107,13 @@ export function MiniStructureEditor() {
                                                         <Button
                                                             variant="ghost"
                                                             size="sm"
-                                                            onClick={() => resetElementContent(element.id)}
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                if (originalElement) {
+                                                                    resetElementContent(element.id);
+                                                                }
+                                                            }}
                                                             className="absolute top-2 right-2 w-4 h-4 p-0 z-10 transition-opacity duration-200 opacity-100"
                                                             title="Reset to original text"
                                                         >
@@ -126,9 +135,13 @@ export function MiniStructureEditor() {
                                     {controls
                                         .filter(control => elementStarredControls.includes(control.element.name))
                                         .map((control) => {
-                                            const currentValue = uiGlobalControlValues[control.element.name] ?? control.element.defaultValue;
-                                            // Use originalControlValues if available, otherwise use default value
-                                            const originalValue = originalControlValues?.[control.element.name] !== undefined
+                                            // Get current value - use value from uiGlobalControlValues if set, otherwise use default
+                                            const currentValue = uiGlobalControlValues.hasOwnProperty(control.element.name)
+                                                ? uiGlobalControlValues[control.element.name]
+                                                : control.element.defaultValue;
+                                            
+                                            // Get original value - use originalControlValues if available, otherwise use default
+                                            const originalValue = originalControlValues?.hasOwnProperty(control.element.name)
                                                 ? originalControlValues[control.element.name]
                                                 : control.element.defaultValue;
                                             
@@ -143,73 +156,83 @@ export function MiniStructureEditor() {
                                                         : parseInt(control.element.defaultValue || '50');
                                                     return current !== original;
                                                 }
-                                                // For other types, compare current with original (both normalized to handle undefined)
-                                                const currentNormalized = currentValue ?? control.element.defaultValue;
-                                                const originalNormalized = originalValue ?? control.element.defaultValue;
-                                                return currentNormalized !== originalNormalized;
+                                                if (control.element.type === 'toggle') {
+                                                    // For toggles, compare boolean values
+                                                    const currentBool = !!currentValue;
+                                                    const originalBool = originalValue !== undefined ? !!originalValue : false;
+                                                    return currentBool !== originalBool;
+                                                }
+                                                // For text and select, compare string values
+                                                const currentStr = String(currentValue ?? control.element.defaultValue ?? '');
+                                                const originalStr = String(originalValue ?? control.element.defaultValue ?? '');
+                                                return currentStr !== originalStr;
                                             })();
 
                                             switch (control.element.type) {
                                                 case 'text':
                                                     return (
-                                                        <div key={control.element.name} className="space-y-1 relative group">
-                                                            {hasChanges && (
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    onClick={() => resetControlValue(control.element.name)}
-                                                                    className="absolute top-0 right-0 w-4 h-4 p-0 z-10 transition-opacity duration-200 opacity-100"
-                                                                    title="Reset to original value"
-                                                                >
-                                                                    <RotateCcw className="w-4 h-4 text-muted-foreground hover:text-foreground" />
-                                                                </Button>
-                                                            )}
-                                                            <Label htmlFor={control.element.name} className="text-xs">
-                                                                {control.element.name}
-                                                            </Label>
-                                                            <Input
-                                                                id={control.element.name}
-                                                                type="text"
-                                                                value={currentValue || ''}
-                                                                onChange={(e) => handleControlChange(control.element.name, e.target.value)}
-                                                                placeholder={control.element.defaultValue || ''}
-                                                                className="text-sm"
-                                                            />
+                                                        <div key={control.element.name} className="space-y-1">
+                                                            <div className="relative">
+                                                                {hasChanges && (
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        onClick={() => resetControlValue(control.element.name)}
+                                                                        className="absolute top-0 right-0 w-4 h-4 p-0 z-10 transition-opacity duration-200 opacity-100"
+                                                                        title="Reset to original value"
+                                                                    >
+                                                                        <RotateCcw className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                                                                    </Button>
+                                                                )}
+                                                                <Label htmlFor={control.element.name} className="text-xs">
+                                                                    {control.element.name}
+                                                                </Label>
+                                                                <Input
+                                                                    id={control.element.name}
+                                                                    type="text"
+                                                                    value={currentValue || ''}
+                                                                    onChange={(e) => handleControlChange(control.element.name, e.target.value)}
+                                                                    placeholder={control.element.defaultValue || ''}
+                                                                    className="text-sm"
+                                                                />
+                                                            </div>
                                                         </div>
                                                     );
 
                                                 case 'select':
                                                     return (
-                                                        <div key={control.element.name} className="space-y-1 relative group">
-                                                            {hasChanges && (
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    onClick={() => resetControlValue(control.element.name)}
-                                                                    className="absolute top-0 right-0 w-4 h-4 p-0 z-10 transition-opacity duration-200 opacity-100"
-                                                                    title="Reset to original value"
+                                                        <div key={control.element.name} className="space-y-1">
+                                                            <div className="relative">
+                                                                {hasChanges && (
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        onClick={() => resetControlValue(control.element.name)}
+                                                                        className="absolute top-0 right-0 w-4 h-4 p-0 z-10 transition-opacity duration-200 opacity-100"
+                                                                        title="Reset to original value"
+                                                                    >
+                                                                        <RotateCcw className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                                                                    </Button>
+                                                                )}
+                                                                <Label htmlFor={control.element.name} className="text-xs">
+                                                                    {control.element.name}
+                                                                </Label>
+                                                                <Select
+                                                                    value={currentValue || control.element.defaultValue}
+                                                                    onValueChange={(value) => handleControlChange(control.element.name, value)}
                                                                 >
-                                                                    <RotateCcw className="w-4 h-4 text-muted-foreground hover:text-foreground" />
-                                                                </Button>
-                                                            )}
-                                                            <Label htmlFor={control.element.name} className="text-xs">
-                                                                {control.element.name}
-                                                            </Label>
-                                                            <Select
-                                                                value={currentValue || control.element.defaultValue}
-                                                                onValueChange={(value) => handleControlChange(control.element.name, value)}
-                                                            >
-                                                                <SelectTrigger className="text-sm">
-                                                                    <SelectValue placeholder="Select an option" />
-                                                                </SelectTrigger>
-                                                                <SelectContent>
-                                                                    {control.element.options?.map((option) => (
-                                                                        <SelectItem key={option} value={option}>
-                                                                            {option}
-                                                                        </SelectItem>
-                                                                    ))}
-                                                                </SelectContent>
-                                                            </Select>
+                                                                    <SelectTrigger className="text-sm">
+                                                                        <SelectValue placeholder="Select an option" />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        {control.element.options?.map((option) => (
+                                                                            <SelectItem key={option} value={option}>
+                                                                                {option}
+                                                                            </SelectItem>
+                                                                        ))}
+                                                                    </SelectContent>
+                                                                </Select>
+                                                            </div>
                                                         </div>
                                                     );
 
@@ -218,54 +241,60 @@ export function MiniStructureEditor() {
                                                         ? parseInt(String(currentValue))
                                                         : parseInt(control.element.defaultValue || '50');
                                                     return (
-                                                        <div key={control.element.name} className="space-y-1 relative group">
-                                                            {hasChanges && (
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    onClick={() => resetControlValue(control.element.name)}
-                                                                    className="absolute top-0 right-0 w-4 h-4 p-0 z-10 transition-opacity duration-200 opacity-100"
-                                                                    title="Reset to original value"
-                                                                >
-                                                                    <RotateCcw className="w-4 h-4 text-muted-foreground hover:text-foreground" />
-                                                                </Button>
-                                                            )}
-                                                            <Label htmlFor={control.element.name} className="text-xs">
-                                                                {control.element.name}: {sliderValue}
-                                                            </Label>
-                                                            <Slider
-                                                                min={control.element.min || 0}
-                                                                max={control.element.max || 100}
-                                                                value={[sliderValue]}
-                                                                onValueChange={(value) => handleControlChange(control.element.name, value[0])}
-                                                                className="w-full"
-                                                            />
+                                                        <div key={control.element.name} className="space-y-1">
+                                                            <div className="relative">
+                                                                {hasChanges && (
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        onClick={() => resetControlValue(control.element.name)}
+                                                                        className="absolute top-0 right-0 w-4 h-4 p-0 z-10 transition-opacity duration-200 opacity-100"
+                                                                        title="Reset to original value"
+                                                                    >
+                                                                        <RotateCcw className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                                                                    </Button>
+                                                                )}
+                                                                <Label htmlFor={control.element.name} className="text-xs">
+                                                                    {control.element.name}: {sliderValue}
+                                                                </Label>
+                                                                <Slider
+                                                                    min={control.element.min || 0}
+                                                                    max={control.element.max || 100}
+                                                                    value={[sliderValue]}
+                                                                    onValueChange={(value) => handleControlChange(control.element.name, value[0])}
+                                                                    className="w-full"
+                                                                />
+                                                            </div>
                                                         </div>
                                                     );
 
                                                 case 'toggle':
                                                     return (
-                                                        <div key={control.element.name} className="flex items-center space-x-2 relative group">
-                                                            {hasChanges && (
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    onClick={() => resetControlValue(control.element.name)}
-                                                                    className="absolute top-0 right-0 w-4 h-4 p-0 z-10 transition-opacity duration-200 opacity-100"
-                                                                    title="Reset to original value"
-                                                                >
-                                                                    <RotateCcw className="w-4 h-4 text-muted-foreground hover:text-foreground" />
-                                                                </Button>
-                                                            )}
-                                                            <Switch
-                                                                id={control.element.name}
-                                                                checked={!!currentValue}
-                                                                onCheckedChange={(checked) => handleControlChange(control.element.name, checked)}
-                                                                className="scale-75"
-                                                            />
-                                                            <Label htmlFor={control.element.name} className="text-xs font-medium">
-                                                                {control.element.name}
-                                                            </Label>
+                                                        <div key={control.element.name} className="flex items-center space-x-2">
+                                                            <div className="relative flex-1">
+                                                                {hasChanges && (
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        onClick={() => resetControlValue(control.element.name)}
+                                                                        className="absolute top-0 right-0 w-4 h-4 p-0 z-10 transition-opacity duration-200 opacity-100"
+                                                                        title="Reset to original value"
+                                                                    >
+                                                                        <RotateCcw className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                                                                    </Button>
+                                                                )}
+                                                                <div className="flex items-center space-x-2 pr-6">
+                                                                    <Switch
+                                                                        id={control.element.name}
+                                                                        checked={!!currentValue}
+                                                                        onCheckedChange={(checked) => handleControlChange(control.element.name, checked)}
+                                                                        className="scale-75"
+                                                                    />
+                                                                    <Label htmlFor={control.element.name} className="text-xs font-medium">
+                                                                        {control.element.name}
+                                                                    </Label>
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     );
 
