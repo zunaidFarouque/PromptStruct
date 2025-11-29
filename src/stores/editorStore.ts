@@ -1,6 +1,7 @@
 import { create, StoreApi } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { StructuralElement, Project, Prompt, Version } from '@/types';
+import { parseControlSyntax } from '@/utils/syntaxParser';
 
 type StructuralElementWithOptionalSanitize = Omit<StructuralElement, 'autoRemoveEmptyLines'> & {
     autoRemoveEmptyLines?: boolean;
@@ -60,6 +61,9 @@ interface PromptUIState {
     uiGlobalControlValues: Record<string, any>; // control name -> value
     uiCollapsedByElementId: Record<string, { text: boolean; controls: boolean; lastExpandedState?: { text: boolean; controls: boolean } }>;
     uiMiniEditorCollapsed: Record<string, boolean>; // elementId -> collapsed state
+    modifiedStructure?: StructuralElement[]; // working copy of structure with modifications
+    originalStructure?: StructuralElement[]; // original saved structure for comparison
+    originalControlValues?: Record<string, any>; // original control values for comparison
 }
 
 interface EditorState {
@@ -166,6 +170,11 @@ interface EditorState {
     loadPromptVersion: (versionId: string) => void;
     createNewVersion: () => void;
     cleanupOldAutoSaves: () => void;
+    
+    // Reset functions
+    resetElementContent: (elementId: string) => void;
+    resetControlValue: (controlName: string) => void;
+    getOriginalStructure: () => StructuralElement[] | undefined;
 }
 
 export const useEditorStore = create<EditorState>()(
@@ -245,11 +254,36 @@ export const useEditorStore = create<EditorState>()(
 
             // Structural element management
             updateStructuralElement: (id, updates) =>
-                set((state) => ({
-                    structure: state.structure.map((element) =>
+                set((state) => {
+                    const updatedStructure = state.structure.map((element) =>
                         element.id === id ? { ...element, ...updates } : element
-                    ),
-                })),
+                    );
+                    
+                    // Also update modifiedStructure in promptUIStates if we have a current prompt
+                    let updatedPromptUIStates = state.promptUIStates;
+                    if (state.currentPrompt) {
+                        const currentUIState = state.promptUIStates[state.currentPrompt.id] || {
+                            starredControls: {},
+                            starredTextBoxes: [],
+                            uiGlobalControlValues: {},
+                            uiCollapsedByElementId: {},
+                            uiMiniEditorCollapsed: {},
+                        };
+                        
+                        updatedPromptUIStates = {
+                            ...state.promptUIStates,
+                            [state.currentPrompt.id]: {
+                                ...currentUIState,
+                                modifiedStructure: updatedStructure.map(el => ({ ...el })), // Deep clone
+                            },
+                        };
+                    }
+                    
+                    return {
+                        structure: updatedStructure,
+                        promptUIStates: updatedPromptUIStates,
+                    };
+                }),
 
             addStructuralElement: (element) =>
                 set((state) => ({
@@ -537,25 +571,36 @@ export const useEditorStore = create<EditorState>()(
             setCurrentPrompt: (prompt) => {
                 const state = get();
                 
-                // Save current UI state to previous prompt before switching (if a prompt was open)
+                // Save current UI state and modified structure to previous prompt before switching (if a prompt was open)
                 if (state.currentPrompt) {
+                    const structureToSave = state.structure.length > 0 ? state.structure.map(el => ({ ...el })) : undefined; // Deep clone
+                    const controlValuesToSave = { ...state.uiGlobalControlValues }; // Deep clone
+                    
                     const currentPromptUIState: PromptUIState = {
                         starredControls: { ...state.starredControls },
                         starredTextBoxes: [...state.starredTextBoxes],
-                        uiGlobalControlValues: { ...state.uiGlobalControlValues },
+                        uiGlobalControlValues: controlValuesToSave,
                         uiCollapsedByElementId: { ...state.uiCollapsedByElementId },
                         uiMiniEditorCollapsed: { ...state.uiMiniEditorCollapsed },
+                        modifiedStructure: structureToSave,
                     };
+                    
+                    // Preserve originalStructure if it exists
+                    const existingUIState = state.promptUIStates[state.currentPrompt.id];
+                    if (existingUIState?.originalStructure) {
+                        currentPromptUIState.originalStructure = existingUIState.originalStructure;
+                    }
+                    if (existingUIState?.originalControlValues) {
+                        currentPromptUIState.originalControlValues = existingUIState.originalControlValues;
+                    }
+                    
                     state.setPromptUIState(state.currentPrompt.id, currentPromptUIState);
                     
-                    // Save current structure to previous prompt before switching (if a prompt was open)
-                    if (state.structure.length > 0) {
-                        // Auto-save current structure to previous prompt
+                    // Also auto-save current structure to previous prompt (for backward compatibility)
+                    if (structureToSave && structureToSave.length > 0) {
                         const existingAutoSave = state.versions.find(v =>
                             v.promptId === state.currentPrompt!.id && v.isAutoSave === true
                         );
-
-                        const structureToSave = state.structure.map(el => ({ ...el })); // Deep clone
 
                         if (existingAutoSave) {
                             // Update existing auto-save
@@ -579,6 +624,8 @@ export const useEditorStore = create<EditorState>()(
 
                 // Load new prompt's structure and UI state
                 let structureToLoad: StructuralElement[] = [];
+                let originalStructureToStore: StructuralElement[] | undefined = undefined;
+                let originalControlValuesToStore: Record<string, any> | undefined = undefined;
                 let uiStateToLoad: PromptUIState = {
                     starredControls: {},
                     starredTextBoxes: [],
@@ -598,41 +645,94 @@ export const useEditorStore = create<EditorState>()(
                             uiCollapsedByElementId: { ...savedUIState.uiCollapsedByElementId },
                             uiMiniEditorCollapsed: { ...savedUIState.uiMiniEditorCollapsed },
                         };
-                    }
-                    
-                    // Try to load from currentVersion first
-                    if (prompt.currentVersion) {
-                        const currentVersion = state.versions.find(v => v.id === prompt.currentVersion);
-                        if (currentVersion) {
-                            structureToLoad = currentVersion.structure.map(el => ({ ...el })); // Deep clone
+                        
+                        // Prioritize modifiedStructure if it exists
+                        if (savedUIState.modifiedStructure && savedUIState.modifiedStructure.length > 0) {
+                            structureToLoad = savedUIState.modifiedStructure.map(el => ({ ...el })); // Deep clone
+                        }
+                        
+                        // Preserve originalStructure and originalControlValues if they exist
+                        if (savedUIState.originalStructure) {
+                            originalStructureToStore = savedUIState.originalStructure.map(el => ({ ...el })); // Deep clone
+                        }
+                        if (savedUIState.originalControlValues) {
+                            originalControlValuesToStore = { ...savedUIState.originalControlValues };
                         }
                     }
                     
-                    // If no currentVersion or version not found, try latest non-autosave version
+                    // If no modifiedStructure, load from version
                     if (structureToLoad.length === 0) {
-                        const nonAutoSaveVersions = state.versions
-                            .filter(v => v.promptId === prompt.id && !v.isAutoSave)
-                            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-                        
-                        if (nonAutoSaveVersions.length > 0) {
-                            structureToLoad = nonAutoSaveVersions[0].structure.map(el => ({ ...el })); // Deep clone
+                        // Try to load from currentVersion first
+                        if (prompt.currentVersion) {
+                            const currentVersion = state.versions.find(v => v.id === prompt.currentVersion);
+                            if (currentVersion) {
+                                structureToLoad = currentVersion.structure.map(el => ({ ...el })); // Deep clone
+                            }
                         }
-                    }
-                    
-                    // If still no structure, try latest auto-save
-                    if (structureToLoad.length === 0) {
-                        const autoSaveVersions = state.versions
-                            .filter(v => v.promptId === prompt.id && v.isAutoSave === true)
-                            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
                         
-                        if (autoSaveVersions.length > 0) {
-                            structureToLoad = autoSaveVersions[0].structure.map(el => ({ ...el })); // Deep clone
+                        // If no currentVersion or version not found, try latest non-autosave version
+                        if (structureToLoad.length === 0) {
+                            const nonAutoSaveVersions = state.versions
+                                .filter(v => v.promptId === prompt.id && !v.isAutoSave)
+                                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                            
+                            if (nonAutoSaveVersions.length > 0) {
+                                structureToLoad = nonAutoSaveVersions[0].structure.map(el => ({ ...el })); // Deep clone
+                            }
+                        }
+                        
+                        // If still no structure, try latest auto-save
+                        if (structureToLoad.length === 0) {
+                            const autoSaveVersions = state.versions
+                                .filter(v => v.promptId === prompt.id && v.isAutoSave === true)
+                                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                            
+                            if (autoSaveVersions.length > 0) {
+                                structureToLoad = autoSaveVersions[0].structure.map(el => ({ ...el })); // Deep clone
+                            }
+                        }
+                        
+                        // Store loaded structure as originalStructure if not already stored
+                        if (structureToLoad.length > 0 && !originalStructureToStore) {
+                            originalStructureToStore = structureToLoad.map(el => ({ ...el })); // Deep clone
+                        }
+                        
+                        // Store original control values from the structure's default values
+                        if (structureToLoad.length > 0 && !originalControlValuesToStore) {
+                            originalControlValuesToStore = {};
+                            // Extract default values from structure
+                            structureToLoad.forEach(element => {
+                                try {
+                                    const controls = parseControlSyntax(element.content);
+                                    controls.forEach((control: any) => {
+                                        if (control.element.defaultValue !== undefined) {
+                                            originalControlValuesToStore![control.element.name] = control.element.defaultValue;
+                                        }
+                                    });
+                                } catch (e) {
+                                    // Ignore parse errors
+                                }
+                            });
                         }
                     }
                 }
                 
                 // If no structure found, use empty array (will be initialized when user starts editing)
                 const normalizedStructure = ensureStructureDefaults(structureToLoad);
+
+                // Update promptUIState with originalStructure and originalControlValues if we have them
+                if (prompt && (originalStructureToStore || originalControlValuesToStore)) {
+                    const updatedUIState: Partial<PromptUIState> = {
+                        ...uiStateToLoad,
+                    };
+                    if (originalStructureToStore) {
+                        updatedUIState.originalStructure = originalStructureToStore;
+                    }
+                    if (originalControlValuesToStore) {
+                        updatedUIState.originalControlValues = originalControlValuesToStore;
+                    }
+                    state.setPromptUIState(prompt.id, updatedUIState);
+                }
 
                 set({ 
                     currentPrompt: prompt,
@@ -741,6 +841,67 @@ export const useEditorStore = create<EditorState>()(
                         });
                     }
                 });
+            },
+            
+            // Reset functions
+            resetElementContent: (elementId: string) => {
+                const state = get();
+                if (!state.currentPrompt) return;
+                
+                const uiState = state.promptUIStates[state.currentPrompt.id];
+                if (!uiState?.originalStructure) return;
+                
+                const originalElement = uiState.originalStructure.find(el => el.id === elementId);
+                if (!originalElement) return;
+                
+                // Restore original content
+                state.updateStructuralElement(elementId, { content: originalElement.content });
+            },
+            
+            resetControlValue: (controlName: string) => {
+                const state = get();
+                if (!state.currentPrompt) return;
+                
+                const uiState = state.promptUIStates[state.currentPrompt.id];
+                if (!uiState?.originalControlValues) return;
+                
+                const originalValue = uiState.originalControlValues[controlName];
+                
+                // Restore original value (or undefined if not in original)
+                const updatedControlValues = {
+                    ...state.uiGlobalControlValues,
+                    [controlName]: originalValue,
+                };
+                
+                // Update both global state and promptUIState
+                set((state) => {
+                    const promptUIState = state.promptUIStates[state.currentPrompt!.id] || {
+                        starredControls: {},
+                        starredTextBoxes: [],
+                        uiGlobalControlValues: {},
+                        uiCollapsedByElementId: {},
+                        uiMiniEditorCollapsed: {},
+                    };
+                    
+                    return {
+                        uiGlobalControlValues: updatedControlValues,
+                        promptUIStates: {
+                            ...state.promptUIStates,
+                            [state.currentPrompt!.id]: {
+                                ...promptUIState,
+                                uiGlobalControlValues: updatedControlValues,
+                            },
+                        },
+                    };
+                });
+            },
+            
+            getOriginalStructure: () => {
+                const state = get();
+                if (!state.currentPrompt) return undefined;
+                
+                const uiState = state.promptUIStates[state.currentPrompt.id];
+                return uiState?.originalStructure;
             },
             };
         },

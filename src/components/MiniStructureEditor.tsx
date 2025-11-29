@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
 
 export function MiniStructureEditor() {
     const {
@@ -17,11 +17,20 @@ export function MiniStructureEditor() {
         starredTextBoxes,
         uiGlobalControlValues,
         uiMiniEditorCollapsed,
+        currentPrompt,
         setUiGlobalControlValues,
         setUiMiniEditorCollapsed,
         updateStructuralElement,
-        toggleStructuralElement
+        toggleStructuralElement,
+        resetElementContent,
+        resetControlValue,
+        getOriginalStructure,
+        promptUIStates
     } = useEditorStore();
+    
+    // Get original structure and control values for comparison
+    const originalStructure = currentPrompt ? getOriginalStructure() : undefined;
+    const originalControlValues = currentPrompt ? promptUIStates[currentPrompt.id]?.originalControlValues : undefined;
 
     const handleControlChange = (name: string, value: any) => {
         setUiGlobalControlValues({ ...uiGlobalControlValues, [name]: value });
@@ -83,28 +92,78 @@ export function MiniStructureEditor() {
                             <CardContent className="p-2 pt-0">
                                 <div className="space-y-3">
                                     {/* Starred text box */}
-                                    {isTextBoxStarred && (
-                                        <div className="space-y-1">
-                                            <Label className="text-xs text-muted-foreground">Text Content</Label>
-                                            <Textarea
-                                                value={element.content}
-                                                onChange={(e) => updateStructuralElement(element.id, { content: e.target.value })}
-                                                placeholder="Enter your prompt content here..."
-                                                className="min-h-[60px] font-mono text-sm resize-y"
-                                            />
-                                        </div>
-                                    )}
+                                    {isTextBoxStarred && (() => {
+                                        const originalElement = originalStructure?.find(el => el.id === element.id);
+                                        const hasChanges = originalElement && originalElement.content !== element.content;
+                                        
+                                        return (
+                                            <div className="space-y-1">
+                                                <Label className="text-xs text-muted-foreground">Text Content</Label>
+                                                <div className="relative group">
+                                                    {hasChanges && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => resetElementContent(element.id)}
+                                                            className="absolute top-2 right-2 w-4 h-4 p-0 z-10 transition-opacity duration-200 opacity-100"
+                                                            title="Reset to original text"
+                                                        >
+                                                            <RotateCcw className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                                                        </Button>
+                                                    )}
+                                                    <Textarea
+                                                        value={element.content}
+                                                        onChange={(e) => updateStructuralElement(element.id, { content: e.target.value })}
+                                                        placeholder="Enter your prompt content here..."
+                                                        className="min-h-[60px] font-mono text-sm resize-y"
+                                                    />
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
 
                                     {/* Starred controls */}
                                     {controls
                                         .filter(control => elementStarredControls.includes(control.element.name))
                                         .map((control) => {
                                             const currentValue = uiGlobalControlValues[control.element.name] ?? control.element.defaultValue;
+                                            // Use originalControlValues if available, otherwise use default value
+                                            const originalValue = originalControlValues?.[control.element.name] !== undefined
+                                                ? originalControlValues[control.element.name]
+                                                : control.element.defaultValue;
+                                            
+                                            // Check if value differs from original
+                                            const hasChanges = (() => {
+                                                if (control.element.type === 'slider') {
+                                                    const current = currentValue !== undefined && currentValue !== null
+                                                        ? parseInt(String(currentValue))
+                                                        : parseInt(control.element.defaultValue || '50');
+                                                    const original = originalValue !== undefined && originalValue !== null
+                                                        ? parseInt(String(originalValue))
+                                                        : parseInt(control.element.defaultValue || '50');
+                                                    return current !== original;
+                                                }
+                                                // For other types, compare current with original (both normalized to handle undefined)
+                                                const currentNormalized = currentValue ?? control.element.defaultValue;
+                                                const originalNormalized = originalValue ?? control.element.defaultValue;
+                                                return currentNormalized !== originalNormalized;
+                                            })();
 
                                             switch (control.element.type) {
                                                 case 'text':
                                                     return (
-                                                        <div key={control.element.name} className="space-y-1">
+                                                        <div key={control.element.name} className="space-y-1 relative group">
+                                                            {hasChanges && (
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => resetControlValue(control.element.name)}
+                                                                    className="absolute top-0 right-0 w-4 h-4 p-0 z-10 transition-opacity duration-200 opacity-100"
+                                                                    title="Reset to original value"
+                                                                >
+                                                                    <RotateCcw className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                                                                </Button>
+                                                            )}
                                                             <Label htmlFor={control.element.name} className="text-xs">
                                                                 {control.element.name}
                                                             </Label>
@@ -121,7 +180,18 @@ export function MiniStructureEditor() {
 
                                                 case 'select':
                                                     return (
-                                                        <div key={control.element.name} className="space-y-1">
+                                                        <div key={control.element.name} className="space-y-1 relative group">
+                                                            {hasChanges && (
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => resetControlValue(control.element.name)}
+                                                                    className="absolute top-0 right-0 w-4 h-4 p-0 z-10 transition-opacity duration-200 opacity-100"
+                                                                    title="Reset to original value"
+                                                                >
+                                                                    <RotateCcw className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                                                                </Button>
+                                                            )}
                                                             <Label htmlFor={control.element.name} className="text-xs">
                                                                 {control.element.name}
                                                             </Label>
@@ -148,7 +218,18 @@ export function MiniStructureEditor() {
                                                         ? parseInt(String(currentValue))
                                                         : parseInt(control.element.defaultValue || '50');
                                                     return (
-                                                        <div key={control.element.name} className="space-y-1">
+                                                        <div key={control.element.name} className="space-y-1 relative group">
+                                                            {hasChanges && (
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => resetControlValue(control.element.name)}
+                                                                    className="absolute top-0 right-0 w-4 h-4 p-0 z-10 transition-opacity duration-200 opacity-100"
+                                                                    title="Reset to original value"
+                                                                >
+                                                                    <RotateCcw className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                                                                </Button>
+                                                            )}
                                                             <Label htmlFor={control.element.name} className="text-xs">
                                                                 {control.element.name}: {sliderValue}
                                                             </Label>
@@ -164,7 +245,18 @@ export function MiniStructureEditor() {
 
                                                 case 'toggle':
                                                     return (
-                                                        <div key={control.element.name} className="flex items-center space-x-2">
+                                                        <div key={control.element.name} className="flex items-center space-x-2 relative group">
+                                                            {hasChanges && (
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => resetControlValue(control.element.name)}
+                                                                    className="absolute top-0 right-0 w-4 h-4 p-0 z-10 transition-opacity duration-200 opacity-100"
+                                                                    title="Reset to original value"
+                                                                >
+                                                                    <RotateCcw className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                                                                </Button>
+                                                            )}
                                                             <Switch
                                                                 id={control.element.name}
                                                                 checked={!!currentValue}
