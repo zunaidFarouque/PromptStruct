@@ -13,13 +13,20 @@ export function getProcessedElementContent(
     }
 
     // If element is linked to a variable, use the variable value instead of element.content
+    // BUT: if element is temporarily unlinked, use element.content instead
     let contentToProcess = element.content;
     if (element.linkedVariable) {
-        const variableValue = useEditorStore.getState().getVariable(element.linkedVariable);
-        if (variableValue !== undefined) {
-            contentToProcess = variableValue;
+        const store = useEditorStore.getState();
+        const isTemporarilyUnlinked = store.isElementTemporarilyUnlinked(element.id);
+        
+        if (!isTemporarilyUnlinked) {
+            const variableValue = store.getVariable(element.linkedVariable);
+            if (variableValue !== undefined) {
+                contentToProcess = variableValue;
+            }
+            // If variable doesn't exist, fallback to element.content
         }
-        // If variable doesn't exist, fallback to element.content
+        // If temporarily unlinked, use element.content (already set above)
     }
 
     const baseContent =

@@ -7,7 +7,12 @@ import { Copy, Columns, Rows, EyeOff } from 'lucide-react';
 import { NotificationService } from '@/services/notificationService';
 
 export function DirectUsePanel() {
-    const { structure, uiGlobalControlValues, browserPanels, setBrowserPanels } = useEditorStore();
+    const { structure, uiGlobalControlValues, browserPanels, setBrowserPanels, variables } = useEditorStore();
+
+    // Subscribe to variables to ensure re-render when variables change
+    // This is needed so the preview updates when linked elements are edited
+    // Reference variables to create subscription (even if not directly used in computation)
+    void variables;
 
     const renderedChunks = structure
         .map(element => getProcessedElementContent(element, 'clean', uiGlobalControlValues))
@@ -25,7 +30,7 @@ export function DirectUsePanel() {
     const toggleLayoutDirection = () => {
         const current = browserPanels.miniEditorLayoutDirection || 'vertical';
         let next: 'horizontal' | 'vertical' | 'hidden';
-        
+
         if (current === 'vertical') {
             next = 'horizontal';
         } else if (current === 'horizontal') {
@@ -33,7 +38,7 @@ export function DirectUsePanel() {
         } else {
             next = 'vertical';
         }
-        
+
         setBrowserPanels({
             miniEditorLayoutDirection: next
         });
@@ -96,8 +101,8 @@ export function DirectUsePanel() {
                 </div>
             ) : (
                 // Visible layout - show resizable panels
-                <ResizablePanelGroup 
-                    direction={layoutDirection} 
+                <ResizablePanelGroup
+                    direction={layoutDirection}
                     autoSaveId={layoutDirection === 'vertical' ? 'direct-use-layout-vertical' : 'direct-use-layout-horizontal'}
                 >
                     {/* Mini Structure Editor */}
