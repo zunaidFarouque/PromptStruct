@@ -39,6 +39,7 @@ export function ProjectBrowser() {
         deletePrompt,
         setCurrentProject,
         setCurrentPrompt,
+        currentPrompt,
         setPreviewMode,
         setUiHelpPanelExpanded,
         setUiPanelLayout,
@@ -1249,8 +1250,13 @@ export function ProjectBrowser() {
                                                     }
                                                 }
                                             }}
-                                            className={`cursor-pointer transition-colors ${selectedPrompts.has(prompt.id) ? 'bg-accent' : ''
-                                                }`}
+                                            className={`cursor-pointer transition-colors ${
+                                                currentPrompt?.id === prompt.id 
+                                                    ? 'bg-accent/50 border-2 border-primary' 
+                                                    : selectedPrompts.has(prompt.id) 
+                                                        ? 'bg-accent' 
+                                                        : ''
+                                            }`}
                                         >
                                             <CardContent className="p-3">
                                                 <div className="flex items-center justify-between">
